@@ -4,4 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# Generate embedded font header from first font file in resources/
+mkdir -p build
+FONT_HEADER="build/font_data.h"
+FONT_FILE="$(find resources/ -maxdepth 1 -type f \( -iname '*.otf' -o -iname '*.ttf' \) 2>/dev/null | head -n1 || true)"
+
+if [ -n "$FONT_FILE" ]; then
+    if [ ! -f "$FONT_HEADER" ] || [ "$FONT_FILE" -nt "$FONT_HEADER" ]; then
+        echo "Embedding font: $FONT_FILE"
+        xxd -i "$FONT_FILE" > "$FONT_HEADER.tmp"
+        # Normalize variable names to embedded_font_data / embedded_font_data_len
+        VARNAME=$(grep -oP 'unsigned char \K[a-zA-Z0-9_]+' "$FONT_HEADER.tmp" | head -1)
+        sed -i "s/${VARNAME}/embedded_font_data/g" "$FONT_HEADER.tmp"
+        echo '#define FONT_EMBEDDED 1' >> "$FONT_HEADER.tmp"
+        mv "$FONT_HEADER.tmp" "$FONT_HEADER"
+    fi
+else
+    echo "No font file found in resources/, using default raylib font"
+    cat > "$FONT_HEADER" <<'EOF'
+/* No font embedded */
+static unsigned char embedded_font_data[] = {0};
+static unsigned int embedded_font_data_len = 0;
+#define FONT_EMBEDDED 0
+EOF
+fi
+
 make -j$(nproc) "$@"

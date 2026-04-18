@@ -2,6 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
+#include "font_data.h"
 
 #define SCREEN_W 1920
 #define SCREEN_H 1080
@@ -56,7 +57,7 @@ static void format_time(float seconds, char *buf, int bufsize)
 
 static void draw_text_centered(Font font, const char *text, float y, float fontSize, Color color)
 {
-    float spacing = fontSize * 0.08f;
+    float spacing = fontSize * 0.03f;
     Vector2 size = MeasureTextEx(font, text, fontSize, spacing);
     float x = (SCREEN_W - size.x) / 2.0f;
     DrawTextEx(font, text, (Vector2){ x, y }, fontSize, spacing, color);
@@ -117,24 +118,30 @@ int main(void)
     InitAudioDevice();
     SetTargetFPS(60);
 
-    const char *fontPath = "resources/Rotis Semi Serif Std 55 Regular.otf";
-    bool fontLoaded = FileExists(fontPath);
-    Font fontSmall, font, fontMed, fontLarge;
-    if (fontLoaded) {
-        fontSmall = LoadFontEx(fontPath, 60, NULL, 0);   /* time labels, help text */
-        font      = LoadFontEx(fontPath, 80, NULL, 0);   /* filename, status */
-        fontMed   = LoadFontEx(fontPath, 100, NULL, 0);  /* prompt */
-        fontLarge = LoadFontEx(fontPath, 160, NULL, 0);  /* title */
-    } else {
-        fontSmall = GetFontDefault();
-        font      = GetFontDefault();
-        fontMed   = GetFontDefault();
-        fontLarge = GetFontDefault();
-    }
-    float szSmall = fontLoaded ? 60.0f : 40.0f;
-    float szFont  = fontLoaded ? 80.0f : 40.0f;
-    float szMed   = fontLoaded ? 100.0f : 60.0f;
-    float szLarge = fontLoaded ? 160.0f : 80.0f;
+    /* Load fonts (embedded or default) */
+#if FONT_EMBEDDED
+    Font fontSmall = LoadFontFromMemory(".otf", embedded_font_data, embedded_font_data_len, 60, NULL, 0);
+    Font font      = LoadFontFromMemory(".otf", embedded_font_data, embedded_font_data_len, 80, NULL, 0);
+    Font fontMed   = LoadFontFromMemory(".otf", embedded_font_data, embedded_font_data_len, 100, NULL, 0);
+    Font fontLarge = LoadFontFromMemory(".otf", embedded_font_data, embedded_font_data_len, 160, NULL, 0);
+    Font fontHelp  = LoadFontFromMemory(".otf", embedded_font_data, embedded_font_data_len, 40, NULL, 0);
+    float szSmall = 60.0f;
+    float szHelp  = 40.0f;
+    float szFont  = 80.0f;
+    float szMed   = 100.0f;
+    float szLarge = 160.0f;
+#else
+    Font fontSmall = GetFontDefault();
+    Font font      = GetFontDefault();
+    Font fontMed   = GetFontDefault();
+    Font fontLarge = GetFontDefault();
+    Font fontHelp  = GetFontDefault();
+    float szSmall = 30.0f;
+    float szHelp  = 20.0f;
+    float szFont  = 40.0f;
+    float szMed   = 50.0f;
+    float szLarge = 80.0f;
+#endif
 
     Color bgColor      = (Color){ 26, 26, 46, 255 };      /* #1a1a2e */
     Color textColor     = (Color){ 234, 234, 234, 255 };   /* #eaeaea */
@@ -147,7 +154,6 @@ int main(void)
 
     /* Layout constants */
     const float titleY    = 60.0f;
-    const float filenameY = 160.0f;
     const float barY      = 460.0f;
     const float barHeight = 50.0f;
     const float barWidth  = SCREEN_W * 0.65f;
@@ -157,7 +163,7 @@ int main(void)
     const float btnRadius = 55.0f;
     const float btnSpacing = 150.0f;
     const float btnCenterX = SCREEN_W / 2.0f;
-    const float helpY     = SCREEN_H - 50.0f;
+    const float helpY     = SCREEN_H - 80.0f;
 
     while (!WindowShouldClose())
     {
@@ -274,6 +280,33 @@ int main(void)
         {
             seek_to(&state, state.currentTime + 5.0f);
         }
+        if (state.loaded && IsKeyPressed(KEY_UP) && !state.playing)
+        {
+            ResumeMusicStream(state.music);
+            state.playing = true;
+        }
+        if (state.loaded && IsKeyPressed(KEY_DOWN) && state.playing)
+        {
+            PauseMusicStream(state.music);
+            float rewind = state.currentTime - 1.0f;
+            if (rewind < 0.0f) rewind = 0.0f;
+            SeekMusicStream(state.music, rewind);
+            state.currentTime = rewind;
+            state.playing = false;
+        }
+        /* --- Number key seeking (0-9 = 0%-90%) --- */
+        if (state.loaded)
+        {
+            for (int k = 0; k <= 9; k++)
+            {
+                if (IsKeyPressed(KEY_ZERO + k))
+                {
+                    float target = state.duration * (k / 10.0f);
+                    seek_to(&state, target);
+                    break;
+                }
+            }
+        }
 
         /* --- 1.4 Music stream update (after input so state is fresh) --- */
         if (state.loaded)
@@ -287,13 +320,10 @@ int main(void)
         BeginDrawing();
         ClearBackground(bgColor);
 
-        /* 3.1 Title */
-        draw_text_centered(fontLarge, "Study Player", titleY, szLarge, textColor);
-
         if (state.loaded)
         {
-            /* 3.2 Filename */
-            draw_text_centered(font, state.filename, filenameY, szFont, mutedColor);
+            /* 3.2 Filename — shown below where title was */
+            draw_text_centered(font, state.filename, titleY, szFont, mutedColor);
 
             /* --- 2.1 Progress bar --- */
             float currentTime = state.currentTime;
@@ -308,24 +338,28 @@ int main(void)
 
             /* --- 2.2 Time labels --- */
             char timeBuf[16];
-            format_time(currentTime, timeBuf, sizeof(timeBuf));
+            int elapsedSec = (int)currentTime;
+            if (elapsedSec < 0) elapsedSec = 0;
+            int totalSec = (int)state.duration;
+            int remainSec = totalSec - elapsedSec;
+            if (remainSec < 0) remainSec = 0;
+
+            format_time((float)elapsedSec, timeBuf, sizeof(timeBuf));
             float timeFontSize = szSmall;
-            float timeSpacing = timeFontSize * 0.08f;
+            float timeSpacing = timeFontSize * 0.03f;
             Vector2 leftSize = MeasureTextEx(fontSmall, timeBuf, timeFontSize, timeSpacing);
             DrawTextEx(fontSmall, timeBuf, (Vector2){ barX - leftSize.x - 20, barY + (barHeight - timeFontSize) / 2.0f }, timeFontSize, timeSpacing, textColor);
 
-            char rightBuf[32];
-            float remaining = state.duration - currentTime;
-            if (remaining < 0.0f) remaining = 0.0f;
-            format_time(remaining, timeBuf, sizeof(timeBuf));
-            int pct = (int)(progress * 100.0f);
-            snprintf(rightBuf, sizeof(rightBuf), "%d%%", pct);
-            Vector2 rightTimeSize = MeasureTextEx(fontSmall, timeBuf, timeFontSize, timeSpacing);
-            Vector2 rightPctSize = MeasureTextEx(fontSmall, rightBuf, timeFontSize, timeSpacing);
-            float rightMaxW = rightTimeSize.x > rightPctSize.x ? rightTimeSize.x : rightPctSize.x;
+            char remainBuf[16];
+            format_time((float)remainSec, remainBuf, sizeof(remainBuf));
             float rightX = barX + barWidth + 20;
-            DrawTextEx(fontSmall, timeBuf, (Vector2){ rightX + (rightMaxW - rightTimeSize.x) / 2, barY - 2 }, timeFontSize, timeSpacing, textColor);
-            DrawTextEx(fontSmall, rightBuf, (Vector2){ rightX + (rightMaxW - rightPctSize.x) / 2, barY + 34 }, timeFontSize, timeSpacing, textColor);
+            DrawTextEx(fontSmall, remainBuf, (Vector2){ rightX, barY + (barHeight - timeFontSize) / 2.0f }, timeFontSize, timeSpacing, textColor);
+
+            /* Percent centered above progress bar */
+            char pctBuf[16];
+            int pct = (int)(progress * 100.0f);
+            snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
+            draw_text_centered(fontSmall, pctBuf, barY - timeFontSize - 10, timeFontSize, textColor);
 
             /* 3.3 Playback status */
             draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", statusY, szFont, accentColor);
@@ -362,12 +396,14 @@ int main(void)
         }
         else
         {
+            /* 3.1 Title — shown only when no file loaded */
+            draw_text_centered(fontLarge, "Study Player", titleY, szLarge, textColor);
             /* 3.2 No file prompt — vertically centered */
             draw_text_centered(fontMed, "Drag an MP3 file here", SCREEN_H / 2.0f - 20, szMed, mutedColor);
         }
 
         /* 3.4 Help text */
-        draw_text_centered(fontSmall, "Space: play/pause    Left/Right: seek 5s    Click bar: seek", helpY, szSmall, mutedColor);
+        draw_text_centered(fontHelp, "Space: play/pause    Arrows: play/pause/seek    0-9: jump to 0%-90%    Click bar: seek", helpY, szHelp, mutedColor);
 
         EndDrawing();
     }
@@ -378,12 +414,13 @@ int main(void)
         UnloadMusicStream(state.music);
     }
 
-    if (fontLoaded) {
-        UnloadFont(fontSmall);
-        UnloadFont(font);
-        UnloadFont(fontMed);
-        UnloadFont(fontLarge);
-    }
+#if FONT_EMBEDDED
+    UnloadFont(fontSmall);
+    UnloadFont(font);
+    UnloadFont(fontMed);
+    UnloadFont(fontLarge);
+    UnloadFont(fontHelp);
+#endif
     CloseAudioDevice();
     CloseWindow();
 
