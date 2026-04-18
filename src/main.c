@@ -23,6 +23,11 @@ typedef struct {
     char filename[256];
     SilenceRegion silence[MAX_SILENCE_REGIONS];
     int silenceCount;
+    bool studyMode;
+    bool wasInSilence;    /* for detecting silence entry */
+    bool pausedAtSilence; /* paused by study mode at silence */
+    int skipAutoUpdate;   /* frames to skip auto-updating currentTime */
+    double lastVPress;    /* timestamp of last V press for double-tap */
 } PlayerState;
 
 static int strcasecmp_ext(const char *a, const char *b)
@@ -100,6 +105,25 @@ static void detect_silence(const char *path, PlayerState *s, float threshold, fl
     }
 
     UnloadWave(wave);
+
+    /* Pad speaking portions by shrinking silence regions 0.25s on each side */
+    if (s->duration > 0.0f)
+    {
+        float padNorm = 0.25f / s->duration; /* 0.25s in normalized units */
+        for (int i = 0; i < s->silenceCount; i++)
+        {
+            s->silence[i].start += padNorm;
+            s->silence[i].end   -= padNorm;
+            if (s->silence[i].start >= s->silence[i].end)
+            {
+                /* Region too small after padding, remove it */
+                for (int j = i; j < s->silenceCount - 1; j++)
+                    s->silence[j] = s->silence[j + 1];
+                s->silenceCount--;
+                i--;
+            }
+        }
+    }
 }
 
 static const char *basename_from_path(const char *path)
@@ -117,6 +141,7 @@ static void seek_to(PlayerState *s, float target)
     if (target > s->duration) target = s->duration;
     SeekMusicStream(s->music, target);
     s->currentTime = target;
+    s->skipAutoUpdate = 3; /* skip a few frames to let audio engine catch up */
 }
 
 static void format_time(float seconds, char *buf, int bufsize)
@@ -130,6 +155,43 @@ static void format_time(float seconds, char *buf, int bufsize)
         snprintf(buf, bufsize, "%d:%02d:%02d", h, m, s);
     else
         snprintf(buf, bufsize, "%d:%02d", m, s);
+}
+
+/* Find the silence region index containing the normalized position, or -1 */
+static int find_silence_at(PlayerState *s, float pos)
+{
+    for (int i = 0; i < s->silenceCount; i++)
+        if (pos >= s->silence[i].start && pos < s->silence[i].end) return i;
+    return -1;
+}
+
+/* Get the start of speaking portion N (0-based). Returns normalized position. */
+static float speaking_portion_start(PlayerState *s, int portion)
+{
+    if (portion <= 0) return 0.0f;
+    if (portion > s->silenceCount) return s->silence[s->silenceCount - 1].end;
+    return s->silence[portion - 1].end;
+}
+
+/* Get which speaking portion (0-based) the normalized position is in.
+   During silence, returns the previous speaking portion. */
+static int current_speaking_portion(PlayerState *s, float pos)
+{
+    int portion = 0;
+    for (int i = 0; i < s->silenceCount; i++)
+    {
+        if (pos >= s->silence[i].end)
+            portion = i + 1;
+        else
+            break;
+    }
+    return portion;
+}
+
+/* Total number of speaking portions */
+static int total_speaking_portions(PlayerState *s)
+{
+    return s->silenceCount + 1;
 }
 
 static void draw_text_centered(Font font, const char *text, float y, float fontSize, Color color)
@@ -228,6 +290,7 @@ int main(void)
     Color btnHoverColor = (Color){ 255, 255, 255, 40 };
 
     PlayerState state = { 0 };
+    state.studyMode = true;
 
     /* Layout constants */
     const float titleY    = 60.0f;
@@ -275,7 +338,7 @@ int main(void)
                     PlayMusicStream(state.music);
 
                     /* Detect silence regions (threshold: 0.01, min duration: 0.5s) */
-                    detect_silence(path, &state, 0.03f, 0.75f);
+                    detect_silence(path, &state, 0.015f, 0.75f);
 
                     char titleBuf[320];
                     snprintf(titleBuf, sizeof(titleBuf), "Study Player - %s", state.filename);
@@ -292,6 +355,7 @@ int main(void)
             if (button_hit(btnCenterX - btnSpacing, btnY, btnRadius))
             {
                 seek_to(&state, state.currentTime - 5.0f);
+                state.pausedAtSilence = false;
             }
 
             /* Play/pause button */
@@ -300,14 +364,40 @@ int main(void)
                 if (state.playing)
                 {
                     PauseMusicStream(state.music);
-                    float rewind = state.currentTime - 1.0f;
-                    if (rewind < 0.0f) rewind = 0.0f;
-                    SeekMusicStream(state.music, rewind);
-                    state.currentTime = rewind;
+                    if (state.studyMode)
+                    {
+                        /* Jump to start of current speaking part */
+                        float pos = state.currentTime / state.duration;
+                        int portion = current_speaking_portion(&state, pos);
+                        float target = speaking_portion_start(&state, portion) * state.duration;
+                        SeekMusicStream(state.music, target);
+                        state.currentTime = target;
+                    }
+                    else
+                    {
+                        float rewind = state.currentTime - 1.0f;
+                        if (rewind < 0.0f) rewind = 0.0f;
+                        SeekMusicStream(state.music, rewind);
+                        state.currentTime = rewind;
+                    }
                     state.playing = false;
+                    state.pausedAtSilence = false;
                 }
                 else
                 {
+                    if (state.studyMode && state.pausedAtSilence)
+                    {
+                        /* Resume after the silence gap */
+                        float pos = state.currentTime / state.duration;
+                        int silIdx = find_silence_at(&state, pos);
+                        if (silIdx >= 0)
+                        {
+                            float target = state.silence[silIdx].end * state.duration;
+                            SeekMusicStream(state.music, target);
+                            state.currentTime = target;
+                        }
+                        state.pausedAtSilence = false;
+                    }
                     ResumeMusicStream(state.music);
                     state.playing = true;
                 }
@@ -317,26 +407,84 @@ int main(void)
             if (button_hit(btnCenterX + btnSpacing, btnY, btnRadius))
             {
                 seek_to(&state, state.currentTime + 5.0f);
+                state.pausedAtSilence = false;
             }
         }
 
-        /* --- 1.2 Play/pause with keyboard --- */
+        /* --- Keyboard input --- */
         if (state.loaded && IsKeyPressed(KEY_SPACE))
         {
             if (state.playing)
             {
                 PauseMusicStream(state.music);
-                float rewind = state.currentTime - 1.0f;
-                if (rewind < 0.0f) rewind = 0.0f;
-                SeekMusicStream(state.music, rewind);
-                state.currentTime = rewind;
+                if (state.studyMode)
+                {
+                    float pos = state.currentTime / state.duration;
+                    int portion = current_speaking_portion(&state, pos);
+                    float target = speaking_portion_start(&state, portion) * state.duration;
+                    SeekMusicStream(state.music, target);
+                    state.currentTime = target;
+                }
+                else
+                {
+                    float rewind = state.currentTime - 1.0f;
+                    if (rewind < 0.0f) rewind = 0.0f;
+                    SeekMusicStream(state.music, rewind);
+                    state.currentTime = rewind;
+                }
                 state.playing = false;
+                state.pausedAtSilence = false;
             }
             else
             {
+                if (state.studyMode && state.pausedAtSilence)
+                {
+                    /* Skip past silence gap */
+                    float pos = state.currentTime / state.duration;
+                    int silIdx = find_silence_at(&state, pos);
+                    if (silIdx >= 0)
+                    {
+                        float target = state.silence[silIdx].end * state.duration;
+                        SeekMusicStream(state.music, target);
+                        state.currentTime = target;
+                    }
+                    state.pausedAtSilence = false;
+                }
                 ResumeMusicStream(state.music);
                 state.playing = true;
             }
+        }
+
+        /* V = jump to start of current speaking part (double-tap for previous) */
+        if (state.loaded && IsKeyPressed(KEY_V))
+        {
+            float pos = state.currentTime / state.duration;
+            int portion = current_speaking_portion(&state, pos);
+            double now = GetTime();
+            bool doubleTap = (now - state.lastVPress) < 0.5;
+            state.lastVPress = now;
+
+            if (doubleTap && portion > 0)
+            {
+                portion--;
+            }
+            float target = speaking_portion_start(&state, portion) * state.duration;
+            seek_to(&state, target);
+            state.pausedAtSilence = false;
+            state.wasInSilence = false;
+        }
+
+        /* B = jump to start of next speaking part */
+        if (state.loaded && IsKeyPressed(KEY_B))
+        {
+            float pos = state.currentTime / state.duration;
+            int portion = current_speaking_portion(&state, pos);
+            int total = total_speaking_portions(&state);
+            if (portion < total - 1) portion++;
+            float target = speaking_portion_start(&state, portion) * state.duration;
+            seek_to(&state, target);
+            state.pausedAtSilence = false;
+            state.wasInSilence = false;
         }
 
         /* --- 2.3 Click-to-seek on progress bar --- */
@@ -393,7 +541,32 @@ int main(void)
         {
             UpdateMusicStream(state.music);
             if (state.playing)
-                state.currentTime = GetMusicTimePlayed(state.music);
+            {
+                if (state.skipAutoUpdate > 0)
+                {
+                    state.skipAutoUpdate--;
+                }
+                else
+                {
+                    state.currentTime = GetMusicTimePlayed(state.music);
+                }
+
+                /* Study mode: auto-pause at silence boundaries */
+                if (state.studyMode && state.duration > 0.0f)
+                {
+                    float pos = state.currentTime / state.duration;
+                    bool nowInSilence = (find_silence_at(&state, pos) >= 0);
+
+                    if (nowInSilence && !state.wasInSilence && !IsKeyDown(KEY_SPACE))
+                    {
+                        /* Just entered silence — auto-pause */
+                        PauseMusicStream(state.music);
+                        state.playing = false;
+                        state.pausedAtSilence = true;
+                    }
+                    state.wasInSilence = nowInSilence;
+                }
+            }
         }
 
         /* --- Drawing --- */
@@ -435,24 +608,16 @@ int main(void)
             float rightX = barX + barWidth + 20;
             DrawTextEx(fontSmall, remainBuf, (Vector2){ rightX, barY + (barHeight - timeFontSize) / 2.0f }, timeFontSize, timeSpacing, textColor);
 
-            /* Percent centered above progress bar — color indicates silence/speech */
+            /* Percent centered above progress bar */
             char pctBuf[16];
             int pct = (int)(progress * 100.0f);
             snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
-            bool inSilence = false;
-            for (int i = 0; i < state.silenceCount; i++)
-            {
-                if (progress >= state.silence[i].start && progress <= state.silence[i].end)
-                {
-                    inSilence = true;
-                    break;
-                }
-            }
-            Color pctColor = inSilence ? accentColor : (Color){ 80, 200, 100, 255 };
-            draw_text_centered(fontSmall, pctBuf, barY - timeFontSize - 10, timeFontSize, pctColor);
+            bool inSilence = (find_silence_at(&state, progress) >= 0);
+            draw_text_centered(fontSmall, pctBuf, barY - timeFontSize - 10, timeFontSize, textColor);
 
-            /* 3.3 Playback status */
-            draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", statusY, szFont, accentColor);
+            /* 3.3 Playback status — color changes with silence/speech only while playing */
+            Color statusColor = (state.playing && inSilence) ? (Color){ 160, 40, 55, 255 } : accentColor;
+            draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", statusY, szFont, statusColor);
 
             /* --- Buttons --- */
             Vector2 mousePos = GetMousePosition();
@@ -465,11 +630,12 @@ int main(void)
             if (hoverBack) DrawCircle((int)sbx, (int)btnY, btnRadius, btnHoverColor);
             draw_seek_back_icon(sbx, btnY, 50, textColor);
 
-            /* Play/pause button */
+            /* Play/pause button — color reflects silence/speech */
+            Color playBtnColor = (state.playing && inSilence) ? (Color){ 160, 40, 55, 255 } : accentColor;
             float ppx = btnCenterX;
             float pdx = mousePos.x - ppx, pdy = mousePos.y - btnY;
             bool hoverPP = (pdx*pdx + pdy*pdy) <= ((btnRadius+5)*(btnRadius+5));
-            DrawCircle((int)ppx, (int)btnY, btnRadius + 8, accentColor);
+            DrawCircle((int)ppx, (int)btnY, btnRadius + 8, playBtnColor);
             if (hoverPP) DrawCircle((int)ppx, (int)btnY, btnRadius + 8, btnHoverColor);
             if (state.playing)
                 draw_pause_icon(ppx, btnY, 50, textColor);
@@ -486,24 +652,12 @@ int main(void)
 
             /* Speaking portion counter below buttons */
             {
-                /* Count speaking portions: regions between silences */
-                int totalPortions = state.silenceCount + 1;
-                /* Determine current portion:
-                   - Before first silence or in first speech gap = 1
-                   - During silence after portion N = N
-                   - At start of next speech = N+1 */
-                int currentPortion = 1;
-                for (int i = 0; i < state.silenceCount; i++)
-                {
-                    if (progress >= state.silence[i].end)
-                        currentPortion = i + 2;  /* past this silence = next portion */
-                    else
-                        break;
-                }
-                if (currentPortion > totalPortions) currentPortion = totalPortions;
+                int portion = current_speaking_portion(&state, progress) + 1;
+                int total = total_speaking_portions(&state);
+                if (portion > total) portion = total;
                 char portionBuf[32];
-                snprintf(portionBuf, sizeof(portionBuf), "%d/%d", currentPortion, totalPortions);
-                draw_text_centered(fontSmall, portionBuf, btnY + btnRadius + 20, szSmall, mutedColor);
+                snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
+                draw_text_centered(fontSmall, portionBuf, btnY + btnRadius + 80, szSmall, mutedColor);
             }
         }
         else
@@ -514,8 +668,37 @@ int main(void)
             draw_text_centered(fontMed, "Drag an MP3 file here", SCREEN_H / 2.0f - 20, szMed, mutedColor);
         }
 
-        /* 3.4 Help text */
-        draw_text_centered(fontHelp, "Space: play/pause    Arrows: play/pause/seek    0-9: jump to 0%-90%    Click bar: seek", helpY, szHelp, mutedColor);
+        /* 3.4 Help text (left-aligned) and Study mode checkbox (right-aligned) on same line */
+        {
+            float helpSpacing = szHelp * 0.03f;
+            float padding = 40.0f;
+            DrawTextEx(fontHelp, "Space: play/pause    Arrows: seek    V/B: prev/next section    0-9: jump",
+                (Vector2){ padding, helpY }, szHelp, helpSpacing, mutedColor);
+
+            /* Study mode checkbox - right aligned on same line */
+            const char *label = "Study Mode";
+            float cbSize = 30.0f;
+            Vector2 labelSize = MeasureTextEx(fontHelp, label, szHelp, helpSpacing);
+            float totalW = cbSize + 10 + labelSize.x;
+            float cbX = SCREEN_W - totalW - padding;
+            float cbY = helpY + (szHelp - cbSize) / 2.0f;
+
+            Rectangle cbRect = { cbX, cbY, cbSize, cbSize };
+            DrawRectangleLinesEx(cbRect, 2, mutedColor);
+            if (state.studyMode)
+                DrawRectangleRec((Rectangle){ cbX + 6, cbY + 6, cbSize - 12, cbSize - 12 }, accentColor);
+            DrawTextEx(fontHelp, label, (Vector2){ cbX + cbSize + 10, helpY }, szHelp, helpSpacing, mutedColor);
+
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 mouse = GetMousePosition();
+                if (mouse.x >= cbX && mouse.x <= cbX + totalW &&
+                    mouse.y >= cbY && mouse.y <= cbY + cbSize)
+                {
+                    state.studyMode = !state.studyMode;
+                }
+            }
+        }
 
         EndDrawing();
     }
