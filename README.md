@@ -2,6 +2,8 @@
 
 A keyboard-driven MP3 player built with [raylib](https://github.com/raysan5/raylib), cross-compiled for Windows from Linux using MinGW.
 
+<img width="1923" height="1125" alt="image" src="https://github.com/user-attachments/assets/a2e2363e-cc0a-4936-8b04-0f32886ff9d8" />
+
 ### Dependencies
 
 Clone the following repositories into the `deps/` directory:
