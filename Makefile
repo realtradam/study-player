@@ -1,0 +1,54 @@
+# Study Player Makefile
+# Builds raylib as a static library, then compiles the application for Windows.
+# Usage:
+#   make        - Build for Windows (cross-compile with MinGW)
+#   make clean  - Remove build artifacts
+
+# Directories
+SRC_DIR     := src
+BUILD_DIR   := build
+RAYLIB_SRC  := deps/raylib/src
+RAYLIB_LIB  := $(BUILD_DIR)/libraylib.a
+
+# Source files
+APP_SRC     := $(SRC_DIR)/main.c
+
+CC       := x86_64-w64-mingw32-gcc
+APP_OUT  := $(BUILD_DIR)/study-player.exe
+LDFLAGS  := -lgdi32 -lwinmm -lcomdlg32 -lole32
+DEFINES  := -DPLATFORM_DESKTOP -D_GLFW_WIN32
+
+CFLAGS_COMMON := -std=c99 -O2 -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include
+CFLAGS := $(CFLAGS_COMMON) -Wall -Wextra
+CFLAGS_RAYLIB := $(CFLAGS_COMMON) -w
+
+# Raylib source files
+RAYLIB_SRCS := $(RAYLIB_SRC)/rcore.c $(RAYLIB_SRC)/rshapes.c $(RAYLIB_SRC)/rtextures.c \
+               $(RAYLIB_SRC)/rtext.c $(RAYLIB_SRC)/rmodels.c $(RAYLIB_SRC)/raudio.c \
+               $(RAYLIB_SRC)/rglfw.c
+RAYLIB_OBJS := $(patsubst $(RAYLIB_SRC)/%.c,$(BUILD_DIR)/raylib/%.o,$(RAYLIB_SRCS))
+
+.PHONY: all clean
+
+all: $(APP_OUT)
+
+# Build application
+$(APP_OUT): $(APP_SRC) $(RAYLIB_LIB) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< -L$(BUILD_DIR) -lraylib $(LDFLAGS)
+
+# Archive raylib objects into static library
+$(RAYLIB_LIB): $(RAYLIB_OBJS) | $(BUILD_DIR)
+	ar rcs $@ $^
+
+# Compile raylib source files
+$(BUILD_DIR)/raylib/%.o: $(RAYLIB_SRC)/%.c | $(BUILD_DIR)/raylib
+	$(CC) $(CFLAGS_RAYLIB) $(DEFINES) -c -o $@ $<
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/raylib:
+	mkdir -p $(BUILD_DIR)/raylib
+
+clean:
+	rm -rf $(BUILD_DIR)
