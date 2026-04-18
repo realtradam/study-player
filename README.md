@@ -47,12 +47,14 @@ Run the `.exe` on Windows (or under Wine). Drag an `.mp3` file onto the window t
 | Key | Action |
 |---|---|
 | **Drag & drop** | Load and play an `.mp3` file |
-| **Space** | Play/pause (see Study Mode below) |
+| **C** | Pause (does nothing if already paused) |
+| **N** | Play from start of current section (does nothing if already playing) |
+| **Space (hold)** | Resume/override study mode auto-pause (never pauses) |
 | **Up Arrow** | Play |
 | **Down Arrow** | Pause (rewinds 1s) |
 | **Left Arrow** | Seek backward 5 seconds |
 | **Right Arrow** | Seek forward 5 seconds |
-| **V** | Jump to start of current section (press again for previous) |
+| **V** | Jump to start of current section (if in padding/silence, jumps to previous) |
 | **B** | Jump to start of next section |
 | **0–9** | Jump to 0%–90% of the track |
 | **Click progress bar** | Seek to position |
@@ -65,19 +67,24 @@ When the audio is loaded, the app analyzes it to detect silence gaps between spo
 
 **How it works:**
 
-- **Auto-pause at silence** — Playback automatically pauses when a silence gap is reached, giving you time to process what was said.
-- **Space (when paused at silence)** — Skips past the silence and resumes at the next speaking section.
-- **Hold Space** — Prevents auto-pause; playback continues straight through silence gaps.
-- **Space (while playing)** — Pauses and jumps back to the start of the current speaking section, so you can re-listen.
-- **V** — Jump to the start of the current speaking section. Press again to go to the previous section. Auto-resumes playback.
-- **B** — Jump to the start of the next speaking section. Auto-resumes playback.
+The app detects silence gaps in the audio and adds a 0.25-second padding zone between silence and speech. Each speaking section is separated by these gaps.
+
+- **Auto-pause at silence entry** — When playback crosses from the padding zone into a silence gap, it automatically pauses and jumps the playhead forward to the start of the next speaking section (just inside the padding).
+- **Auto-pause at silence exit** — If audio plays through a silence gap (e.g. via Space override), it auto-pauses when exiting the silence into the next padding/speech zone.
+- **C** — Pauses playback at the current position. Does nothing if already paused.
+- **N** — Seeks to the start of the current speaking section and resumes playback. Does nothing if already playing.
+- **Space (hold)** — Overrides study mode auto-pauses while held. If paused, pressing Space resumes playback. Space never pauses — it only resumes/overrides.
+- **V** — Jumps to the start of the current speaking section. If the playhead is in the padding zone or in silence, jumps to the previous section instead.
+- **B** — Jumps to the start of the next speaking section.
+
+Section navigation buttons (◀ ▶) are also available next to the section counter.
 
 **Visual indicators:**
 
 - The "PLAYING"/"PAUSED" text and play button turn a darker red during silence sections.
 - The section counter below the buttons shows your current position (e.g. "12/70").
 
-When Study Mode is **off**, Space simply toggles play/pause with a 1-second rewind on pause.
+When Study Mode is **off**, C pauses and N resumes without any section-seeking behavior. Space still only resumes (never pauses).
 
 ### Project Structure
 

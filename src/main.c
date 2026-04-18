@@ -25,9 +25,9 @@ typedef struct {
     int silenceCount;
     bool studyMode;
     bool wasInSilence;    /* for detecting silence entry */
-    bool pausedAtSilence; /* paused by study mode at silence */
+    int  lastSilenceIdx;  /* index of silence region we were last in, or -1 */
     int skipAutoUpdate;   /* frames to skip auto-updating currentTime */
-    double lastVPress;    /* timestamp of last V press for double-tap */
+    double lastVPress;    /* unused, kept for struct compat */
 } PlayerState;
 
 static int strcasecmp_ext(const char *a, const char *b)
@@ -194,6 +194,27 @@ static int total_speaking_portions(PlayerState *s)
     return s->silenceCount + 1;
 }
 
+/* Get the seek target (in seconds) for jumping to a speaking portion.
+   Lands 2 render-frames (~33ms) into the padding zone. */
+static float segment_seek_target(PlayerState *s, int portion)
+{
+    float pos = speaking_portion_start(s, portion);
+    float target = pos * s->duration + (2.0f / 60.0f);
+    if (target < 0.0f) target = 0.0f;
+    if (target > s->duration) target = s->duration;
+    return target;
+}
+
+/* Check if normalized position is in the padding zone of a speaking portion.
+   The padding zone is [speaking_start, speaking_start + 0.25s/duration]. */
+static bool in_padding_zone(PlayerState *s, float pos, int portion)
+{
+    if (s->duration <= 0.0f) return false;
+    float padNorm = 0.25f / s->duration;
+    float start = speaking_portion_start(s, portion);
+    return (pos >= start && pos < start + padNorm);
+}
+
 static void draw_text_centered(Font font, const char *text, float y, float fontSize, Color color)
 {
     float spacing = fontSize * 0.03f;
@@ -291,6 +312,7 @@ int main(void)
 
     PlayerState state = { 0 };
     state.studyMode = true;
+    state.lastSilenceIdx = -1;
 
     /* Layout constants */
     const float titleY    = 60.0f;
@@ -301,7 +323,8 @@ int main(void)
     const float statusY   = barY + barHeight + 30.0f;
     const float btnY      = statusY + 120.0f + 55.0f; /* below status text + gap */
     const float btnRadius = 55.0f;
-    const float btnSpacing = 150.0f;
+    const float btnSpacing = 150.0f; /* currently unused */
+    (void)btnSpacing;
     const float btnCenterX = SCREEN_W / 2.0f;
     const float helpY     = SCREEN_H - 80.0f;
 
@@ -351,127 +374,122 @@ int main(void)
         /* --- Button clicks --- */
         if (state.loaded)
         {
-            /* Seek back button */
+            /* Seek back button (disabled) */
+#if 0
             if (button_hit(btnCenterX - btnSpacing, btnY, btnRadius))
             {
                 seek_to(&state, state.currentTime - 5.0f);
-                state.pausedAtSilence = false;
             }
+#endif
 
-            /* Play/pause button */
+            /* Play/pause button: acts like c (if playing) or n (if paused) */
             if (button_hit(btnCenterX, btnY, btnRadius))
             {
                 if (state.playing)
                 {
                     PauseMusicStream(state.music);
-                    if (state.studyMode)
-                    {
-                        /* Jump to start of current speaking part */
-                        float pos = state.currentTime / state.duration;
-                        int portion = current_speaking_portion(&state, pos);
-                        float target = speaking_portion_start(&state, portion) * state.duration;
-                        SeekMusicStream(state.music, target);
-                        state.currentTime = target;
-                    }
-                    else
-                    {
-                        float rewind = state.currentTime - 1.0f;
-                        if (rewind < 0.0f) rewind = 0.0f;
-                        SeekMusicStream(state.music, rewind);
-                        state.currentTime = rewind;
-                    }
                     state.playing = false;
-                    state.pausedAtSilence = false;
                 }
                 else
                 {
-                    if (state.studyMode && state.pausedAtSilence)
-                    {
-                        /* Resume after the silence gap */
-                        float pos = state.currentTime / state.duration;
-                        int silIdx = find_silence_at(&state, pos);
-                        if (silIdx >= 0)
-                        {
-                            float target = state.silence[silIdx].end * state.duration;
-                            SeekMusicStream(state.music, target);
-                            state.currentTime = target;
-                        }
-                        state.pausedAtSilence = false;
-                    }
                     ResumeMusicStream(state.music);
                     state.playing = true;
                 }
             }
 
-            /* Seek forward button */
+            /* Seek forward button (disabled) */
+#if 0
             if (button_hit(btnCenterX + btnSpacing, btnY, btnRadius))
             {
                 seek_to(&state, state.currentTime + 5.0f);
-                state.pausedAtSilence = false;
+            }
+#endif
+
+            /* Section nav buttons (prev/next section, same as V/B) */
+            {
+                float progress = (state.duration > 0.0f) ? state.currentTime / state.duration : 0.0f;
+                int portion = current_speaking_portion(&state, progress) + 1;
+                int total = total_speaking_portions(&state);
+                if (portion > total) portion = total;
+                char portionBuf[32];
+                snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
+                float portionY = btnY + btnRadius + 80;
+                float portionSpacing = szSmall * 0.03f;
+                Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
+                float portionX = (SCREEN_W - portionSize.x) / 2.0f;
+                float secBtnRadius = 35.0f;
+                float secBtnGap = 30.0f;
+                float secPrevX = portionX - secBtnGap - secBtnRadius;
+                float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
+                float secBtnY = portionY + szSmall / 2.0f;
+
+                if (button_hit(secPrevX, secBtnY, secBtnRadius))
+                {
+                    float pos = state.currentTime / state.duration;
+                    int p = current_speaking_portion(&state, pos);
+                    bool inSil = (find_silence_at(&state, pos) >= 0);
+                    bool inPad = in_padding_zone(&state, pos, p);
+                    if ((inSil || inPad) && p > 0) p--;
+                    float target = segment_seek_target(&state, p);
+                    seek_to(&state, target);
+                    state.wasInSilence = false;
+                    state.lastSilenceIdx = -1;
+                }
+                if (button_hit(secNextX, secBtnY, secBtnRadius))
+                {
+                    float pos = state.currentTime / state.duration;
+                    int p = current_speaking_portion(&state, pos);
+                    if (p < total - 1) p++;
+                    float target = segment_seek_target(&state, p);
+                    seek_to(&state, target);
+                    state.wasInSilence = false;
+                    state.lastSilenceIdx = -1;
+                }
             }
         }
 
         /* --- Keyboard input --- */
-        if (state.loaded && IsKeyPressed(KEY_SPACE))
+        /* C = pause only (does nothing if already paused) */
+        if (state.loaded && IsKeyPressed(KEY_C) && state.playing)
         {
-            if (state.playing)
-            {
-                PauseMusicStream(state.music);
-                if (state.studyMode)
-                {
-                    float pos = state.currentTime / state.duration;
-                    int portion = current_speaking_portion(&state, pos);
-                    float target = speaking_portion_start(&state, portion) * state.duration;
-                    SeekMusicStream(state.music, target);
-                    state.currentTime = target;
-                }
-                else
-                {
-                    float rewind = state.currentTime - 1.0f;
-                    if (rewind < 0.0f) rewind = 0.0f;
-                    SeekMusicStream(state.music, rewind);
-                    state.currentTime = rewind;
-                }
-                state.playing = false;
-                state.pausedAtSilence = false;
-            }
-            else
-            {
-                if (state.studyMode && state.pausedAtSilence)
-                {
-                    /* Skip past silence gap */
-                    float pos = state.currentTime / state.duration;
-                    int silIdx = find_silence_at(&state, pos);
-                    if (silIdx >= 0)
-                    {
-                        float target = state.silence[silIdx].end * state.duration;
-                        SeekMusicStream(state.music, target);
-                        state.currentTime = target;
-                    }
-                    state.pausedAtSilence = false;
-                }
-                ResumeMusicStream(state.music);
-                state.playing = true;
-            }
+            PauseMusicStream(state.music);
+            state.playing = false;
         }
 
-        /* V = jump to start of current speaking part (double-tap for previous) */
+        /* N = play only (does nothing if already playing); seeks to start of current speaking portion */
+        if (state.loaded && IsKeyPressed(KEY_N) && !state.playing)
+        {
+            float pos = state.currentTime / state.duration;
+            int portion = current_speaking_portion(&state, pos);
+            float target = segment_seek_target(&state, portion);
+            seek_to(&state, target);
+            ResumeMusicStream(state.music);
+            state.playing = true;
+        }
+
+        /* Space (held) = override study-mode auto-pause; resume if paused; never pauses */
+        if (state.loaded && IsKeyPressed(KEY_SPACE) && !state.playing)
+        {
+            ResumeMusicStream(state.music);
+            state.playing = true;
+        }
+
+        /* V = jump to current or previous speaking portion */
         if (state.loaded && IsKeyPressed(KEY_V))
         {
             float pos = state.currentTime / state.duration;
             int portion = current_speaking_portion(&state, pos);
-            double now = GetTime();
-            bool doubleTap = (now - state.lastVPress) < 0.5;
-            state.lastVPress = now;
 
-            if (doubleTap && portion > 0)
-            {
+            /* If in silence or in the padding zone of current portion, go to previous */
+            bool inSil = (find_silence_at(&state, pos) >= 0);
+            bool inPad = in_padding_zone(&state, pos, portion);
+            if ((inSil || inPad) && portion > 0)
                 portion--;
-            }
-            float target = speaking_portion_start(&state, portion) * state.duration;
+
+            float target = segment_seek_target(&state, portion);
             seek_to(&state, target);
-            state.pausedAtSilence = false;
             state.wasInSilence = false;
+            state.lastSilenceIdx = -1;
         }
 
         /* B = jump to start of next speaking part */
@@ -481,10 +499,10 @@ int main(void)
             int portion = current_speaking_portion(&state, pos);
             int total = total_speaking_portions(&state);
             if (portion < total - 1) portion++;
-            float target = speaking_portion_start(&state, portion) * state.duration;
+            float target = segment_seek_target(&state, portion);
             seek_to(&state, target);
-            state.pausedAtSilence = false;
             state.wasInSilence = false;
+            state.lastSilenceIdx = -1;
         }
 
         /* --- 2.3 Click-to-seek on progress bar --- */
@@ -555,16 +573,33 @@ int main(void)
                 if (state.studyMode && state.duration > 0.0f)
                 {
                     float pos = state.currentTime / state.duration;
-                    bool nowInSilence = (find_silence_at(&state, pos) >= 0);
+                    int silIdx = find_silence_at(&state, pos);
+                    bool nowInSilence = (silIdx >= 0);
 
                     if (nowInSilence && !state.wasInSilence && !IsKeyDown(KEY_SPACE))
                     {
-                        /* Just entered silence — auto-pause */
+                        /* Just entered silence — auto-pause and jump to next segment */
+                        float target = segment_seek_target(&state, silIdx + 1);
                         PauseMusicStream(state.music);
+                        SeekMusicStream(state.music, target);
+                        state.currentTime = target;
                         state.playing = false;
-                        state.pausedAtSilence = true;
+                        state.skipAutoUpdate = 3;
                     }
+                    else if (!nowInSilence && state.wasInSilence && !IsKeyDown(KEY_SPACE))
+                    {
+                        /* Just exited silence into padding/speech — auto-pause here */
+                        int portion = current_speaking_portion(&state, pos);
+                        float target = segment_seek_target(&state, portion);
+                        PauseMusicStream(state.music);
+                        SeekMusicStream(state.music, target);
+                        state.currentTime = target;
+                        state.playing = false;
+                        state.skipAutoUpdate = 3;
+                    }
+
                     state.wasInSilence = nowInSilence;
+                    if (nowInSilence) state.lastSilenceIdx = silIdx;
                 }
             }
         }
@@ -622,13 +657,22 @@ int main(void)
             /* --- Buttons --- */
             Vector2 mousePos = GetMousePosition();
 
-            /* Seek back button */
+            /* Seek back button (disabled) */
+#if 0
             float sbx = btnCenterX - btnSpacing;
             float sdx1 = mousePos.x - sbx, sdy1 = mousePos.y - btnY;
             bool hoverBack = (sdx1*sdx1 + sdy1*sdy1) <= (btnRadius*btnRadius);
             DrawCircle((int)sbx, (int)btnY, btnRadius, (Color){ 50, 50, 70, 255 });
             if (hoverBack) DrawCircle((int)sbx, (int)btnY, btnRadius, btnHoverColor);
             draw_seek_back_icon(sbx, btnY, 50, textColor);
+            {
+                float lbl_spacing = szHelp * 0.03f;
+                const char *lbl = "5";
+                float lblFontSize = szHelp * 0.8f;
+                Vector2 lblSz = MeasureTextEx(fontHelp, lbl, lblFontSize, lbl_spacing);
+                DrawTextEx(fontHelp, lbl, (Vector2){ sbx - lblSz.x/2, btnY - lblSz.y/2 }, lblFontSize, lbl_spacing, (Color){ 50, 50, 70, 255 });
+            }
+#endif
 
             /* Play/pause button — color reflects silence/speech */
             Color playBtnColor = (state.playing && inSilence) ? (Color){ 160, 40, 55, 255 } : accentColor;
@@ -642,22 +686,56 @@ int main(void)
             else
                 draw_play_icon(ppx, btnY, 50, textColor);
 
-            /* Seek forward button */
+            /* Seek forward button (disabled) */
+#if 0
             float sfx = btnCenterX + btnSpacing;
             float sdx2 = mousePos.x - sfx, sdy2 = mousePos.y - btnY;
             bool hoverFwd = (sdx2*sdx2 + sdy2*sdy2) <= (btnRadius*btnRadius);
             DrawCircle((int)sfx, (int)btnY, btnRadius, (Color){ 50, 50, 70, 255 });
             if (hoverFwd) DrawCircle((int)sfx, (int)btnY, btnRadius, btnHoverColor);
             draw_seek_fwd_icon(sfx, btnY, 50, textColor);
+            {
+                float lbl_spacing = szHelp * 0.03f;
+                const char *lbl = "5";
+                float lblFontSize = szHelp * 0.8f;
+                Vector2 lblSz = MeasureTextEx(fontHelp, lbl, lblFontSize, lbl_spacing);
+                DrawTextEx(fontHelp, lbl, (Vector2){ sfx - lblSz.x/2, btnY - lblSz.y/2 }, lblFontSize, lbl_spacing, (Color){ 50, 50, 70, 255 });
+            }
+#endif
 
-            /* Speaking portion counter below buttons */
+            /* Speaking portion counter with prev/next section buttons */
             {
                 int portion = current_speaking_portion(&state, progress) + 1;
                 int total = total_speaking_portions(&state);
                 if (portion > total) portion = total;
                 char portionBuf[32];
                 snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
-                draw_text_centered(fontSmall, portionBuf, btnY + btnRadius + 80, szSmall, mutedColor);
+                float portionY = btnY + btnRadius + 80;
+                float portionSpacing = szSmall * 0.03f;
+                Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
+                float portionX = (SCREEN_W - portionSize.x) / 2.0f;
+                DrawTextEx(fontSmall, portionBuf, (Vector2){ portionX, portionY }, szSmall, portionSpacing, mutedColor);
+
+                /* Section nav buttons */
+                float secBtnRadius = 35.0f;
+                float secBtnGap = 30.0f;
+                float secPrevX = portionX - secBtnGap - secBtnRadius;
+                float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
+                float secBtnY = portionY + szSmall / 2.0f;
+
+                /* Prev section button */
+                float sd3 = mousePos.x - secPrevX, sd4 = mousePos.y - secBtnY;
+                bool hoverSecPrev = (sd3*sd3 + sd4*sd4) <= (secBtnRadius*secBtnRadius);
+                DrawCircle((int)secPrevX, (int)secBtnY, secBtnRadius, (Color){ 50, 50, 70, 255 });
+                if (hoverSecPrev) DrawCircle((int)secPrevX, (int)secBtnY, secBtnRadius, btnHoverColor);
+                draw_seek_back_icon(secPrevX, secBtnY, 30, textColor);
+
+                /* Next section button */
+                float sd5 = mousePos.x - secNextX, sd6 = mousePos.y - secBtnY;
+                bool hoverSecNext = (sd5*sd5 + sd6*sd6) <= (secBtnRadius*secBtnRadius);
+                DrawCircle((int)secNextX, (int)secBtnY, secBtnRadius, (Color){ 50, 50, 70, 255 });
+                if (hoverSecNext) DrawCircle((int)secNextX, (int)secBtnY, secBtnRadius, btnHoverColor);
+                draw_seek_fwd_icon(secNextX, secBtnY, 30, textColor);
             }
         }
         else
@@ -672,7 +750,7 @@ int main(void)
         {
             float helpSpacing = szHelp * 0.03f;
             float padding = 40.0f;
-            DrawTextEx(fontHelp, "Space: play/pause    Arrows: seek    V/B: prev/next section    0-9: jump",
+        DrawTextEx(fontHelp, "C: pause  N: play  Space(hold): override  V/B: prev/next  Arrows: seek  0-9: jump",
                 (Vector2){ padding, helpY }, szHelp, helpSpacing, mutedColor);
 
             /* Study mode checkbox - right aligned on same line */
