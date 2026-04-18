@@ -7,6 +7,13 @@
 #define SCREEN_W 1920
 #define SCREEN_H 1080
 
+#define MAX_SILENCE_REGIONS 4096
+
+typedef struct {
+    float start;  /* normalized 0..1 */
+    float end;    /* normalized 0..1 */
+} SilenceRegion;
+
 typedef struct {
     Music music;
     bool loaded;
@@ -14,6 +21,8 @@ typedef struct {
     float duration;
     float currentTime;
     char filename[256];
+    SilenceRegion silence[MAX_SILENCE_REGIONS];
+    int silenceCount;
 } PlayerState;
 
 static int strcasecmp_ext(const char *a, const char *b)
@@ -23,6 +32,74 @@ static int strcasecmp_ext(const char *a, const char *b)
         a++; b++;
     }
     return *a != *b;
+}
+
+static void detect_silence(const char *path, PlayerState *s, float threshold, float minDuration)
+{
+    s->silenceCount = 0;
+    Wave wave = LoadWave(path);
+    if (wave.data == NULL || wave.frameCount == 0) return;
+
+    /* Convert to 32-bit float mono for easy analysis */
+    WaveFormat(&wave, wave.sampleRate, 32, 1);
+    float *samples = (float *)wave.data;
+    unsigned int totalFrames = wave.frameCount;
+    float sampleRate = (float)wave.sampleRate;
+
+    /* Scan in chunks of ~10ms */
+    int chunkSize = (int)(sampleRate * 0.01f);
+    if (chunkSize < 1) chunkSize = 1;
+    float minFrames = minDuration * sampleRate;
+
+    bool inSilence = false;
+    unsigned int silenceStart = 0;
+
+    for (unsigned int i = 0; i < totalFrames; i += chunkSize)
+    {
+        unsigned int end = i + chunkSize;
+        if (end > totalFrames) end = totalFrames;
+
+        /* Find peak amplitude in this chunk */
+        float peak = 0.0f;
+        for (unsigned int j = i; j < end; j++)
+        {
+            float v = samples[j];
+            if (v < 0) v = -v;
+            if (v > peak) peak = v;
+        }
+
+        if (peak < threshold)
+        {
+            if (!inSilence) { silenceStart = i; inSilence = true; }
+        }
+        else
+        {
+            if (inSilence)
+            {
+                unsigned int len = i - silenceStart;
+                if ((float)len >= minFrames && s->silenceCount < MAX_SILENCE_REGIONS)
+                {
+                    s->silence[s->silenceCount].start = (float)silenceStart / (float)totalFrames;
+                    s->silence[s->silenceCount].end   = (float)i / (float)totalFrames;
+                    s->silenceCount++;
+                }
+                inSilence = false;
+            }
+        }
+    }
+    /* Close any trailing silence */
+    if (inSilence)
+    {
+        unsigned int len = totalFrames - silenceStart;
+        if ((float)len >= minFrames && s->silenceCount < MAX_SILENCE_REGIONS)
+        {
+            s->silence[s->silenceCount].start = (float)silenceStart / (float)totalFrames;
+            s->silence[s->silenceCount].end   = (float)totalFrames / (float)totalFrames;
+            s->silenceCount++;
+        }
+    }
+
+    UnloadWave(wave);
 }
 
 static const char *basename_from_path(const char *path)
@@ -197,6 +274,9 @@ int main(void)
 
                     PlayMusicStream(state.music);
 
+                    /* Detect silence regions (threshold: 0.01, min duration: 0.5s) */
+                    detect_silence(path, &state, 0.03f, 0.75f);
+
                     char titleBuf[320];
                     snprintf(titleBuf, sizeof(titleBuf), "Study Player - %s", state.filename);
                     SetWindowTitle(titleBuf);
@@ -355,11 +435,21 @@ int main(void)
             float rightX = barX + barWidth + 20;
             DrawTextEx(fontSmall, remainBuf, (Vector2){ rightX, barY + (barHeight - timeFontSize) / 2.0f }, timeFontSize, timeSpacing, textColor);
 
-            /* Percent centered above progress bar */
+            /* Percent centered above progress bar — color indicates silence/speech */
             char pctBuf[16];
             int pct = (int)(progress * 100.0f);
             snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
-            draw_text_centered(fontSmall, pctBuf, barY - timeFontSize - 10, timeFontSize, textColor);
+            bool inSilence = false;
+            for (int i = 0; i < state.silenceCount; i++)
+            {
+                if (progress >= state.silence[i].start && progress <= state.silence[i].end)
+                {
+                    inSilence = true;
+                    break;
+                }
+            }
+            Color pctColor = inSilence ? accentColor : (Color){ 80, 200, 100, 255 };
+            draw_text_centered(fontSmall, pctBuf, barY - timeFontSize - 10, timeFontSize, pctColor);
 
             /* 3.3 Playback status */
             draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", statusY, szFont, accentColor);
@@ -393,6 +483,28 @@ int main(void)
             DrawCircle((int)sfx, (int)btnY, btnRadius, (Color){ 50, 50, 70, 255 });
             if (hoverFwd) DrawCircle((int)sfx, (int)btnY, btnRadius, btnHoverColor);
             draw_seek_fwd_icon(sfx, btnY, 50, textColor);
+
+            /* Speaking portion counter below buttons */
+            {
+                /* Count speaking portions: regions between silences */
+                int totalPortions = state.silenceCount + 1;
+                /* Determine current portion:
+                   - Before first silence or in first speech gap = 1
+                   - During silence after portion N = N
+                   - At start of next speech = N+1 */
+                int currentPortion = 1;
+                for (int i = 0; i < state.silenceCount; i++)
+                {
+                    if (progress >= state.silence[i].end)
+                        currentPortion = i + 2;  /* past this silence = next portion */
+                    else
+                        break;
+                }
+                if (currentPortion > totalPortions) currentPortion = totalPortions;
+                char portionBuf[32];
+                snprintf(portionBuf, sizeof(portionBuf), "%d/%d", currentPortion, totalPortions);
+                draw_text_centered(fontSmall, portionBuf, btnY + btnRadius + 20, szSmall, mutedColor);
+            }
         }
         else
         {
