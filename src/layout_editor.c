@@ -51,9 +51,35 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         dragIndex = -1;
 
-        /* Check element 4 first (Help), then 3, 2, 1, 0.
+        /* Check element 6 first, then 5, 4, 3, 2, 1, 0.
            Later checks overwrite earlier ones if they overlap —
            priority goes to elements drawn last / on top. */
+
+        /* 6: Section nav buttons (two circles) */
+        {
+            float secPrevX = (float)screenW / 2.0f - 65.0f;
+            float secNextX = (float)screenW / 2.0f + 65.0f;
+            float secBtnRadius = 35.0f;
+            float dx1 = mouse.x - secPrevX;
+            float dy1 = mouse.y - layout->secNavY;
+            float dx2 = mouse.x - secNextX;
+            float dy2 = mouse.y - layout->secNavY;
+            if ((dx1 * dx1 + dy1 * dy1 <= secBtnRadius * secBtnRadius) ||
+                (dx2 * dx2 + dy2 * dy2 <= secBtnRadius * secBtnRadius)) {
+                dragIndex  = 6;
+                dragOffsetY = mouse.y - layout->secNavY;
+            }
+        }
+
+        /* 5: Smart play button (HOLD) */
+        {
+            Rectangle r = { (float)screenW / 2.0f - 100.0f,
+                           layout->smartPlayY, 200.0f, 80.0f };
+            if (CheckCollisionPointRec(mouse, r)) {
+                dragIndex  = 5;
+                dragOffsetY = mouse.y - layout->smartPlayY;
+            }
+        }
 
         /* 4: Help */
         {
@@ -130,6 +156,12 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
         case 4: /* Help */
             layout->helpY = mouse.y - dragOffsetY;
             break;
+        case 5: /* Smart play */
+            layout->smartPlayY = mouse.y - dragOffsetY;
+            break;
+        case 6: /* Section nav */
+            layout->secNavY = mouse.y - dragOffsetY;
+            break;
         }
     }
 
@@ -202,5 +234,37 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
         Color f = (dragIndex == 4) ? highlightColor : fillColor;
         Rectangle r = { 40.0f, layout->helpY, HELP_W, HELP_H };
         draw_label("Help", r, f, borderColor);
+    }
+
+    /* --- 5: Smart play button --- */
+    {
+        Color f = (dragIndex == 5) ? highlightColor : fillColor;
+        Rectangle r = { (float)screenW / 2.0f - 100.0f,
+                       layout->smartPlayY, 200.0f, 80.0f };
+        draw_label("HOLD", r, f, borderColor);
+    }
+
+    /* --- 6: Section nav buttons --- */
+    {
+        Color f = (dragIndex == 6) ? highlightColor : fillColor;
+        float secBtnRadius = 35.0f;
+        float secPrevX = (float)screenW / 2.0f - 65.0f;
+        float secNextX = (float)screenW / 2.0f + 65.0f;
+        float secCenterY = layout->secNavY;
+
+        DrawCircle((int)secPrevX, (int)secCenterY, secBtnRadius, f);
+        DrawCircleLines((int)secPrevX, (int)secCenterY, secBtnRadius, borderColor);
+        DrawText("<", (int)secPrevX - MeasureText("<", labelFontSize) / 2,
+                 (int)secCenterY - labelFontSize / 2, labelFontSize, labelColor);
+
+        DrawCircle((int)secNextX, (int)secCenterY, secBtnRadius, f);
+        DrawCircleLines((int)secNextX, (int)secCenterY, secBtnRadius, borderColor);
+        DrawText(">", (int)secNextX - MeasureText(">", labelFontSize) / 2,
+                 (int)secCenterY - labelFontSize / 2, labelFontSize, labelColor);
+
+        const char *secLabel = "Sec";
+        int secLabelW = MeasureText(secLabel, labelFontSize);
+        DrawText(secLabel, (int)((float)screenW / 2.0f - secLabelW / 2.0f),
+                 (int)secCenterY - labelFontSize / 2, labelFontSize, labelColor);
     }
 }

@@ -58,6 +58,7 @@ static UILayout layout;
 
 static int activeTab = 0;
 static int prevTab = 0;
+static bool smartPlayHeld = false;
 static char exeDir[512];
 
 static int strcasecmp_ext(const char *a, const char *b)
@@ -386,7 +387,6 @@ static void update_frame(void)
             if (portion > total) portion = total;
             char portionBuf[32];
             snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
-            float portionY = layout.btnY + layout.btnRadius + 80;
             float portionSpacing = szSmall * 0.03f;
             Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
             float portionX = (SCREEN_W - portionSize.x) / 2.0f;
@@ -394,7 +394,7 @@ static void update_frame(void)
             float secBtnGap = 30.0f;
             float secPrevX = portionX - secBtnGap - secBtnRadius;
             float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
-            float secBtnY = portionY + szSmall / 2.0f;
+            float secBtnY = layout.secNavY;
 
             if (button_hit(secPrevX, secBtnY, secBtnRadius))
             {
@@ -417,6 +417,34 @@ static void update_frame(void)
                 seek_to(&state, target);
                 state.wasInSilence = false;
                 state.lastSilenceIdx = -1;
+            }
+        }
+
+        /* --- Smart play hold button input --- */
+        {
+            Rectangle smartBtn = { SCREEN_W/2.0f - 100.0f, layout.smartPlayY, 200.0f, 80.0f };
+            Vector2 mouse = GetMousePosition();
+            bool overBtn = (mouse.x >= smartBtn.x && mouse.x <= smartBtn.x + smartBtn.width &&
+                            mouse.y >= smartBtn.y && mouse.y <= smartBtn.y + smartBtn.height);
+
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && overBtn) {
+                smartPlayHeld = true;
+                if (!state.playing) {
+                    ResumeMusicStream(state.music);
+                    state.playing = true;
+                }
+            }
+
+            if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && smartPlayHeld) {
+                /* Allow finger drift - stay held */
+            }
+
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                smartPlayHeld = false;
+            }
+
+            if (GetTouchPointCount() > 0 && smartPlayHeld) {
+                /* Touch fallback: keep held while touch points active */
             }
         }
     }
@@ -538,7 +566,7 @@ static void update_frame(void)
                 int silIdx = find_silence_at(&state, pos);
                 bool nowInSilence = (silIdx >= 0);
 
-                if (nowInSilence && !state.wasInSilence && !IsKeyDown(KEY_SPACE))
+                if (nowInSilence && !state.wasInSilence && !IsKeyDown(KEY_SPACE) && !smartPlayHeld)
                 {
                     float target = segment_seek_target(&state, silIdx + 1);
                     PauseMusicStream(state.music);
@@ -547,7 +575,7 @@ static void update_frame(void)
                     state.playing = false;
                     state.skipAutoUpdate = 3;
                 }
-                else if (!nowInSilence && state.wasInSilence && !IsKeyDown(KEY_SPACE))
+                else if (!nowInSilence && state.wasInSilence && !IsKeyDown(KEY_SPACE) && !smartPlayHeld)
                 {
                     int portion = current_speaking_portion(&state, pos);
                     float target = segment_seek_target(&state, portion);
@@ -645,7 +673,7 @@ static void update_frame(void)
             if (portion > total) portion = total;
             char portionBuf[32];
             snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
-            float portionY = layout.btnY + layout.btnRadius + 80;
+            float portionY = layout.secNavY - szSmall / 2.0f;
             float portionSpacing = szSmall * 0.03f;
             Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
             float portionX = (SCREEN_W - portionSize.x) / 2.0f;
@@ -656,7 +684,7 @@ static void update_frame(void)
             float secBtnGap = 30.0f;
             float secPrevX = portionX - secBtnGap - secBtnRadius;
             float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
-            float secBtnY_draw = portionY + szSmall / 2.0f;
+            float secBtnY_draw = layout.secNavY;
 
             float sd3 = mousePos.x - secPrevX, sd4 = mousePos.y - secBtnY_draw;
             bool hoverSecPrev = (sd3*sd3 + sd4*sd4) <= (secBtnRadius*secBtnRadius);
@@ -669,6 +697,21 @@ static void update_frame(void)
             DrawCircle((int)secNextX, (int)secBtnY_draw, secBtnRadius, (Color){ 50, 50, 70, 255 });
             if (hoverSecNext) DrawCircle((int)secNextX, (int)secBtnY_draw, secBtnRadius, btnHoverColor);
             draw_seek_fwd_icon(secNextX, secBtnY_draw, 30, textColor);
+        }
+
+        /* --- Smart play hold button rendering --- */
+        {
+            Rectangle smartBtn = { SCREEN_W/2.0f - 100.0f, layout.smartPlayY, 200.0f, 80.0f };
+            Color btnFill = smartPlayHeld ? (Color){ 80, 30, 50, 220 } : (Color){ 50, 50, 70, 180 };
+            Color btnBorder = smartPlayHeld ? accentColor : mutedColor;
+            Color btnTextColor = smartPlayHeld ? accentColor : textColor;
+            DrawRectangleRounded(smartBtn, 0.3f, 8, btnFill);
+            DrawRectangleRoundedLines(smartBtn, 0.3f, 8, btnBorder);
+            float btnSpacing = szSmall * 0.03f;
+            Vector2 btnSize = MeasureTextEx(fontSmall, "HOLD", szSmall, btnSpacing);
+            float tx = smartBtn.x + (smartBtn.width - btnSize.x) / 2.0f;
+            float ty = smartBtn.y + (smartBtn.height - szSmall) / 2.0f;
+            DrawTextEx(fontSmall, "HOLD", (Vector2){ tx, ty }, szSmall, btnSpacing, btnTextColor);
         }
     }
     else

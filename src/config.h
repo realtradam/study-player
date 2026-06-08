@@ -11,6 +11,8 @@ typedef struct {
     float helpY;
     float btnY;
     float btnCenterX;
+    float smartPlayY;
+    float secNavY;
 } UILayout;
 
 int config_load(const char *exePath, UILayout *layout);

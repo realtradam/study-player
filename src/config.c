@@ -23,6 +23,8 @@ static void set_defaults(UILayout *layout)
     layout->barX    = (1920.0f - layout->barWidth) / 2.0f;
     layout->statusY = layout->barY + layout->barHeight + 30.0f;
     layout->btnY    = layout->statusY + 120.0f + 55.0f;
+    layout->smartPlayY = 1080.0f - 80.0f - 120.0f;
+    layout->secNavY    = layout->btnY + 55.0f + 80.0f + 30.0f;
 }
 
 static void chomp(char *line)
@@ -99,6 +101,8 @@ static int parse_config(const char *path, UILayout *layout)
         else if (strcmp(key, "help_y") == 0)     layout->helpY = f;
         else if (strcmp(key, "btn_y") == 0)      layout->btnY = f;
         else if (strcmp(key, "btn_center_x") == 0) layout->btnCenterX = f;
+        else if (strcmp(key, "smart_play_y") == 0) layout->smartPlayY = f;
+        else if (strcmp(key, "sec_nav_y") == 0)    layout->secNavY = f;
 
         loaded = 1;
     }
@@ -141,6 +145,8 @@ int config_save(const char *exePath, const UILayout *layout)
     fprintf(fp, "help_y=%.2f\n", layout->helpY);
     fprintf(fp, "btn_y=%.2f\n", layout->btnY);
     fprintf(fp, "btn_center_x=%.2f\n", layout->btnCenterX);
+    fprintf(fp, "smart_play_y=%.2f\n", layout->smartPlayY);
+    fprintf(fp, "sec_nav_y=%.2f\n", layout->secNavY);
     fclose(fp);
     return 1;
 }
