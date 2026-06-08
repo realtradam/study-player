@@ -22,7 +22,7 @@ RAYLIB_SRCS := $(RAYLIB_SRC)/rcore.c $(RAYLIB_SRC)/rshapes.c $(RAYLIB_SRC)/rtext
 RAYLIB_OBJS := $(patsubst $(RAYLIB_SRC)/%.c,$(BUILD_DIR)/raylib/%.o,$(RAYLIB_SRCS))
 
 # Common include paths
-COMMON_INCS := -I$(BUILD_DIR) -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include
+COMMON_INCS := -I$(BUILD_DIR) -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include -Ideps/raygui/src
 
 # ---------------------------------------------------------------------------
 # Linux native configuration (default target)

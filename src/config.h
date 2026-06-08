@@ -14,3 +14,4 @@ typedef struct {
 } UILayout;
 
 int config_load(const char *exePath, UILayout *layout);
+int config_save(const char *exePath, const UILayout *layout);

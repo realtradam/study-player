@@ -4,6 +4,8 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "config.h"
+#include "layout_editor.h"
+#include "raygui.h"
 #include "font_data.h"
 
 #ifdef PLATFORM_LINUX
@@ -53,6 +55,10 @@ static Color barBgColor;
 static Color btnHoverColor;
 
 static UILayout layout;
+
+static int activeTab = 0;
+static int prevTab = 0;
+static char exeDir[512];
 
 static int strcasecmp_ext(const char *a, const char *b)
 {
@@ -352,6 +358,8 @@ static void update_frame(void)
     }
 #endif
 
+    if (activeTab == 0)
+    {
     /* --- Button clicks --- */
     if (state.loaded)
     {
@@ -506,6 +514,7 @@ static void update_frame(void)
             }
         }
     }
+    }
 
     /* --- Music stream update --- */
     if (state.loaded)
@@ -555,10 +564,20 @@ static void update_frame(void)
         }
     }
 
+    /* --- Save layout on tab switch --- */
+    if (prevTab == 1 && activeTab == 0) {
+        config_save(exeDir, &layout);
+    }
+    prevTab = activeTab;
+
     /* --- Drawing --- */
     BeginDrawing();
     ClearBackground(bgColor);
 
+    char *tabNames[] = { "Player", "Layout" };
+    GuiTabBar((Rectangle){ 0, 10, SCREEN_W, 32 }, tabNames, 2, &activeTab);
+
+    if (activeTab == 0) {
     if (state.loaded)
     {
         draw_text_centered(font, state.filename, layout.titleY, szFont, mutedColor);
@@ -693,6 +712,10 @@ static void update_frame(void)
         }
     }
 
+    } else {
+        layout_editor_draw(exeDir, &layout);
+    }
+
     EndDrawing();
 }
 
@@ -744,6 +767,21 @@ int main(void)
         readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
 #endif
         config_load(exePath, &layout);
+
+        {
+            const char *lastSlash = strrchr(exePath, '/');
+            if (lastSlash) {
+                size_t len = (size_t)(lastSlash - exePath);
+                if (len >= sizeof(exeDir)) len = sizeof(exeDir) - 1;
+                memcpy(exeDir, exePath, len);
+                exeDir[len] = '\0';
+            } else {
+                exeDir[0] = '.';
+                exeDir[1] = '\0';
+            }
+        }
+
+        layout_editor_init();
     }
 
 #ifdef PLATFORM_WEB

@@ -104,6 +104,10 @@ static int parse_config(const char *path, UILayout *layout)
     }
 
     fclose(fp);
+
+    layout->barX    = (1920.0f - layout->barWidth) / 2.0f;
+    layout->statusY = layout->barY + layout->barHeight + 30.0f;
+
     return loaded;
 }
 
@@ -114,5 +118,29 @@ int config_load(const char *exePath, UILayout *layout)
     char cfgPath[1024];
     build_config_path(exePath, cfgPath, sizeof(cfgPath));
 
-    return parse_config(cfgPath, layout);
+    int loaded = parse_config(cfgPath, layout);
+    layout->barX    = (1920.0f - layout->barWidth) / 2.0f;
+    layout->statusY = layout->barY + layout->barHeight + 30.0f;
+    return loaded;
+}
+
+int config_save(const char *exePath, const UILayout *layout)
+{
+    char cfgPath[1024];
+    build_config_path(exePath, cfgPath, sizeof(cfgPath));
+
+    FILE *fp = fopen(cfgPath, "w");
+    if (!fp) return 0;
+
+    fprintf(fp, "# Study Player layout config\n");
+    fprintf(fp, "title_y=%.2f\n", layout->titleY);
+    fprintf(fp, "bar_y=%.2f\n", layout->barY);
+    fprintf(fp, "bar_height=%.2f\n", layout->barHeight);
+    fprintf(fp, "bar_width=%.2f\n", layout->barWidth);
+    fprintf(fp, "btn_radius=%.2f\n", layout->btnRadius);
+    fprintf(fp, "help_y=%.2f\n", layout->helpY);
+    fprintf(fp, "btn_y=%.2f\n", layout->btnY);
+    fprintf(fp, "btn_center_x=%.2f\n", layout->btnCenterX);
+    fclose(fp);
+    return 1;
 }
