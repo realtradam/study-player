@@ -246,11 +246,11 @@ static bool in_padding_zone(PlayerState *s, float pos, int portion)
     return (pos >= start && pos < start + padNorm);
 }
 
-static void draw_text_centered(Font f, const char *text, float y, float fontSize, Color color)
+static void draw_text_centered(Font f, const char *text, float centerX, float y, float fontSize, Color color)
 {
     float spacing = fontSize * 0.03f;
     Vector2 size = MeasureTextEx(f, text, fontSize, spacing);
-    float x = (SCREEN_W - size.x) / 2.0f;
+    float x = centerX - size.x / 2.0f;
     DrawTextEx(f, text, (Vector2){ x, y }, fontSize, spacing, color);
 }
 
@@ -385,15 +385,9 @@ static void update_frame(void)
             int portion = current_speaking_portion(&state, progress) + 1;
             int total = total_speaking_portions(&state);
             if (portion > total) portion = total;
-            char portionBuf[32];
-            snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
-            float portionSpacing = szSmall * 0.03f;
-            Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
-            float portionX = (SCREEN_W - portionSize.x) / 2.0f;
             float secBtnRadius = 35.0f;
-            float secBtnGap = 30.0f;
-            float secPrevX = portionX - secBtnGap - secBtnRadius;
-            float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
+            float secPrevX = layout.secNavX - 65.0f;
+            float secNextX = layout.secNavX + 65.0f;
             float secBtnY = layout.secNavY;
 
             if (button_hit(secPrevX, secBtnY, secBtnRadius))
@@ -422,7 +416,7 @@ static void update_frame(void)
 
         /* --- Smart play hold button input --- */
         {
-            Rectangle smartBtn = { SCREEN_W/2.0f - 100.0f, layout.smartPlayY, 200.0f, 80.0f };
+            Rectangle smartBtn = { layout.smartPlayX, layout.smartPlayY, 200.0f, 80.0f };
             Vector2 mouse = GetMousePosition();
             bool overBtn = (mouse.x >= smartBtn.x && mouse.x <= smartBtn.x + smartBtn.width &&
                             mouse.y >= smartBtn.y && mouse.y <= smartBtn.y + smartBtn.height);
@@ -608,7 +602,7 @@ static void update_frame(void)
     if (activeTab == 0) {
     if (state.loaded)
     {
-        draw_text_centered(font, state.filename, layout.titleY, szFont, mutedColor);
+        draw_text_centered(font, state.filename, layout.titleX, layout.titleY, szFont, mutedColor);
 
         /* Progress bar */
         float currentTime = state.currentTime;
@@ -645,11 +639,11 @@ static void update_frame(void)
         int pct = (int)(progress * 100.0f);
         snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
         bool inSilence = (find_silence_at(&state, progress) >= 0);
-        draw_text_centered(fontSmall, pctBuf, layout.barY - timeFontSize - 10, timeFontSize, textColor);
+        draw_text_centered(fontSmall, pctBuf, layout.barX + layout.barWidth / 2.0f, layout.barY - timeFontSize - 10, timeFontSize, textColor);
 
         /* Playback status */
         Color statusColor = (state.playing && inSilence) ? (Color){ 160, 40, 55, 255 } : accentColor;
-        draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", layout.statusY, szFont, statusColor);
+        draw_text_centered(font, state.playing ? "PLAYING" : "PAUSED", layout.statusX, layout.statusY, szFont, statusColor);
 
         /* Buttons */
         Vector2 mousePos = GetMousePosition();
@@ -676,14 +670,13 @@ static void update_frame(void)
             float portionY = layout.secNavY - szSmall / 2.0f;
             float portionSpacing = szSmall * 0.03f;
             Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
-            float portionX = (SCREEN_W - portionSize.x) / 2.0f;
+            float portionX = layout.secNavX - portionSize.x / 2.0f;
             DrawTextEx(fontSmall, portionBuf, (Vector2){ portionX, portionY }, szSmall, portionSpacing, mutedColor);
 
             /* Section nav buttons */
             float secBtnRadius = 35.0f;
-            float secBtnGap = 30.0f;
-            float secPrevX = portionX - secBtnGap - secBtnRadius;
-            float secNextX = portionX + portionSize.x + secBtnGap + secBtnRadius;
+            float secPrevX = layout.secNavX - 65.0f;
+            float secNextX = layout.secNavX + 65.0f;
             float secBtnY_draw = layout.secNavY;
 
             float sd3 = mousePos.x - secPrevX, sd4 = mousePos.y - secBtnY_draw;
@@ -701,7 +694,7 @@ static void update_frame(void)
 
         /* --- Smart play hold button rendering --- */
         {
-            Rectangle smartBtn = { SCREEN_W/2.0f - 100.0f, layout.smartPlayY, 200.0f, 80.0f };
+            Rectangle smartBtn = { layout.smartPlayX, layout.smartPlayY, 200.0f, 80.0f };
             Color btnFill = smartPlayHeld ? (Color){ 80, 30, 50, 220 } : (Color){ 50, 50, 70, 180 };
             Color btnBorder = smartPlayHeld ? accentColor : mutedColor;
             Color btnTextColor = smartPlayHeld ? accentColor : textColor;
@@ -716,26 +709,25 @@ static void update_frame(void)
     }
     else
     {
-        draw_text_centered(fontLarge, "Study Player", layout.titleY, szLarge, textColor);
+        draw_text_centered(fontLarge, "Study Player", layout.titleX, layout.titleY, szLarge, textColor);
 #ifdef PLATFORM_WEB
-        draw_text_centered(fontMed, "Use Load MP3 button above", SCREEN_H / 2.0f - 20, szMed, mutedColor);
+        draw_text_centered(fontMed, "Use Load MP3 button above", (float)SCREEN_W / 2.0f, SCREEN_H / 2.0f - 20, szMed, mutedColor);
 #else
-        draw_text_centered(fontMed, "Drag an MP3 file here", SCREEN_H / 2.0f - 20, szMed, mutedColor);
+        draw_text_centered(fontMed, "Drag an MP3 file here", (float)SCREEN_W / 2.0f, SCREEN_H / 2.0f - 20, szMed, mutedColor);
 #endif
     }
 
     /* Help text and Study mode checkbox */
     {
         float helpSpacing = szHelp * 0.03f;
-        float padding = 40.0f;
         DrawTextEx(fontHelp, "C: pause  N: play  Space(hold): override  V/B: prev/next  Arrows: seek  0-9: jump",
-                (Vector2){ padding, layout.helpY }, szHelp, helpSpacing, mutedColor);
+                (Vector2){ layout.helpX, layout.helpY }, szHelp, helpSpacing, mutedColor);
 
         const char *label = "Study Mode";
         float cbSize = 30.0f;
         Vector2 labelSize = MeasureTextEx(fontHelp, label, szHelp, helpSpacing);
         float totalW = cbSize + 10 + labelSize.x;
-        float cbX = SCREEN_W - totalW - padding;
+        float cbX = SCREEN_W - totalW - layout.helpX;
         float cbY = layout.helpY + (szHelp - cbSize) / 2.0f;
 
         Rectangle cbRect = { cbX, cbY, cbSize, cbSize };

@@ -44,7 +44,6 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
 {
     (void)exePath;
 
-    int   screenW = GetScreenWidth();
     Vector2 mouse  = GetMousePosition();
 
     /* --- Hit detection on press --- */
@@ -57,8 +56,8 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
 
         /* 6: Section nav buttons (two circles) */
         {
-            float secPrevX = (float)screenW / 2.0f - 65.0f;
-            float secNextX = (float)screenW / 2.0f + 65.0f;
+            float secPrevX = layout->secNavX - 65.0f;
+            float secNextX = layout->secNavX + 65.0f;
             float secBtnRadius = 35.0f;
             float dx1 = mouse.x - secPrevX;
             float dy1 = mouse.y - layout->secNavY;
@@ -67,25 +66,28 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
             if ((dx1 * dx1 + dy1 * dy1 <= secBtnRadius * secBtnRadius) ||
                 (dx2 * dx2 + dy2 * dy2 <= secBtnRadius * secBtnRadius)) {
                 dragIndex  = 6;
+                dragOffsetX = mouse.x - layout->secNavX;
                 dragOffsetY = mouse.y - layout->secNavY;
             }
         }
 
         /* 5: Smart play button (HOLD) */
         {
-            Rectangle r = { (float)screenW / 2.0f - 100.0f,
+            Rectangle r = { layout->smartPlayX,
                            layout->smartPlayY, 200.0f, 80.0f };
             if (CheckCollisionPointRec(mouse, r)) {
                 dragIndex  = 5;
+                dragOffsetX = mouse.x - layout->smartPlayX;
                 dragOffsetY = mouse.y - layout->smartPlayY;
             }
         }
 
         /* 4: Help */
         {
-            Rectangle r = { 40.0f, layout->helpY, HELP_W, HELP_H };
+            Rectangle r = { layout->helpX, layout->helpY, HELP_W, HELP_H };
             if (CheckCollisionPointRec(mouse, r)) {
                 dragIndex  = 4;
+                dragOffsetX = mouse.x - layout->helpX;
                 dragOffsetY = mouse.y - layout->helpY;
             }
         }
@@ -103,10 +105,11 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
 
         /* 2: Status */
         {
-            Rectangle r = { (float)screenW / 2.0f - STATUS_W / 2.0f,
+            Rectangle r = { layout->statusX - STATUS_W / 2.0f,
                            layout->statusY, STATUS_W, STATUS_H };
             if (CheckCollisionPointRec(mouse, r)) {
                 dragIndex  = 2;
+                dragOffsetX = mouse.x - layout->statusX;
                 dragOffsetY = mouse.y - layout->statusY;
             }
         }
@@ -127,10 +130,11 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
 
         /* 0: Title */
         {
-            Rectangle r = { (float)screenW / 2.0f - TITLE_W / 2.0f,
+            Rectangle r = { layout->titleX - TITLE_W / 2.0f,
                            layout->titleY, TITLE_W, TITLE_H };
             if (CheckCollisionPointRec(mouse, r)) {
                 dragIndex  = 0;
+                dragOffsetX = mouse.x - layout->titleX;
                 dragOffsetY = mouse.y - layout->titleY;
             }
         }
@@ -140,6 +144,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && dragIndex >= 0) {
         switch (dragIndex) {
         case 0: /* Title */
+            layout->titleX = mouse.x - dragOffsetX;
             layout->titleY = mouse.y - dragOffsetY;
             break;
         case 1: /* Bar group */
@@ -147,6 +152,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
             layout->barY = mouse.y - dragOffsetY;
             break;
         case 2: /* Status */
+            layout->statusX = mouse.x - dragOffsetX;
             layout->statusY = mouse.y - dragOffsetY;
             break;
         case 3: /* Play button */
@@ -154,12 +160,15 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
             layout->btnY       = mouse.y - dragOffsetY;
             break;
         case 4: /* Help */
+            layout->helpX = mouse.x - dragOffsetX;
             layout->helpY = mouse.y - dragOffsetY;
             break;
         case 5: /* Smart play */
+            layout->smartPlayX = mouse.x - dragOffsetX;
             layout->smartPlayY = mouse.y - dragOffsetY;
             break;
         case 6: /* Section nav */
+            layout->secNavX = mouse.x - dragOffsetX;
             layout->secNavY = mouse.y - dragOffsetY;
             break;
         }
@@ -175,7 +184,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     /* --- 0: Title --- */
     {
         Color f = (dragIndex == 0) ? highlightColor : fillColor;
-        Rectangle r = { (float)screenW / 2.0f - TITLE_W / 2.0f,
+        Rectangle r = { layout->titleX - TITLE_W / 2.0f,
                        layout->titleY, TITLE_W, TITLE_H };
         draw_label("Title", r, f, borderColor);
     }
@@ -209,7 +218,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     /* --- 2: Status --- */
     {
         Color f = (dragIndex == 2) ? highlightColor : fillColor;
-        Rectangle r = { (float)screenW / 2.0f - STATUS_W / 2.0f,
+        Rectangle r = { layout->statusX - STATUS_W / 2.0f,
                        layout->statusY, STATUS_W, STATUS_H };
         draw_label("Status", r, f, borderColor);
     }
@@ -232,14 +241,14 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     /* --- 4: Help --- */
     {
         Color f = (dragIndex == 4) ? highlightColor : fillColor;
-        Rectangle r = { 40.0f, layout->helpY, HELP_W, HELP_H };
+        Rectangle r = { layout->helpX, layout->helpY, HELP_W, HELP_H };
         draw_label("Help", r, f, borderColor);
     }
 
     /* --- 5: Smart play button --- */
     {
         Color f = (dragIndex == 5) ? highlightColor : fillColor;
-        Rectangle r = { (float)screenW / 2.0f - 100.0f,
+        Rectangle r = { layout->smartPlayX,
                        layout->smartPlayY, 200.0f, 80.0f };
         draw_label("HOLD", r, f, borderColor);
     }
@@ -248,8 +257,8 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
     {
         Color f = (dragIndex == 6) ? highlightColor : fillColor;
         float secBtnRadius = 35.0f;
-        float secPrevX = (float)screenW / 2.0f - 65.0f;
-        float secNextX = (float)screenW / 2.0f + 65.0f;
+        float secPrevX = layout->secNavX - 65.0f;
+        float secNextX = layout->secNavX + 65.0f;
         float secCenterY = layout->secNavY;
 
         DrawCircle((int)secPrevX, (int)secCenterY, secBtnRadius, f);
@@ -264,7 +273,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
 
         const char *secLabel = "Sec";
         int secLabelW = MeasureText(secLabel, labelFontSize);
-        DrawText(secLabel, (int)((float)screenW / 2.0f - secLabelW / 2.0f),
+        DrawText(secLabel, (int)(layout->secNavX - secLabelW / 2.0f),
                  (int)secCenterY - labelFontSize / 2, labelFontSize, labelColor);
     }
 }

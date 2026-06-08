@@ -13,18 +13,23 @@
 static void set_defaults(UILayout *layout)
 {
     layout->titleY     = 60.0f;
+    layout->titleX     = 1920.0f / 2.0f;
     layout->barY       = 460.0f;
     layout->barHeight  = 50.0f;
     layout->barWidth   = 1920.0f * 0.65f;
     layout->btnRadius  = 55.0f;
     layout->helpY      = 1080.0f - 80.0f;
+    layout->helpX      = 40.0f;
     layout->btnCenterX = 1920.0f / 2.0f;
 
-    layout->barX    = (1920.0f - layout->barWidth) / 2.0f;
-    layout->statusY = layout->barY + layout->barHeight + 30.0f;
-    layout->btnY    = layout->statusY + 120.0f + 55.0f;
+    layout->barX       = (1920.0f - layout->barWidth) / 2.0f;
+    layout->statusY    = layout->barY + layout->barHeight + 30.0f;
+    layout->statusX    = 1920.0f / 2.0f;
+    layout->btnY       = layout->statusY + 120.0f + 55.0f;
     layout->smartPlayY = 1080.0f - 80.0f - 120.0f;
+    layout->smartPlayX = 1920.0f / 2.0f - 100.0f;
     layout->secNavY    = layout->btnY + 55.0f + 80.0f + 30.0f;
+    layout->secNavX    = 1920.0f / 2.0f;
 }
 
 static void chomp(char *line)
@@ -94,15 +99,20 @@ static int parse_config(const char *path, UILayout *layout)
         if (f < 0.0f) continue;
 
         if (strcmp(key, "title_y") == 0)       layout->titleY = f;
+        else if (strcmp(key, "title_x") == 0)       layout->titleX = f;
         else if (strcmp(key, "bar_y") == 0)    layout->barY = f;
         else if (strcmp(key, "bar_height") == 0) layout->barHeight = f;
         else if (strcmp(key, "bar_width") == 0)  layout->barWidth = f;
         else if (strcmp(key, "btn_radius") == 0) layout->btnRadius = f;
         else if (strcmp(key, "help_y") == 0)     layout->helpY = f;
+        else if (strcmp(key, "help_x") == 0)     layout->helpX = f;
+        else if (strcmp(key, "status_x") == 0)    layout->statusX = f;
         else if (strcmp(key, "btn_y") == 0)      layout->btnY = f;
         else if (strcmp(key, "btn_center_x") == 0) layout->btnCenterX = f;
         else if (strcmp(key, "smart_play_y") == 0) layout->smartPlayY = f;
+        else if (strcmp(key, "smart_play_x") == 0) layout->smartPlayX = f;
         else if (strcmp(key, "sec_nav_y") == 0)    layout->secNavY = f;
+        else if (strcmp(key, "sec_nav_x") == 0)    layout->secNavX = f;
 
         loaded = 1;
     }
@@ -138,15 +148,20 @@ int config_save(const char *exePath, const UILayout *layout)
 
     fprintf(fp, "# Study Player layout config\n");
     fprintf(fp, "title_y=%.2f\n", layout->titleY);
+    fprintf(fp, "title_x=%.2f\n", layout->titleX);
     fprintf(fp, "bar_y=%.2f\n", layout->barY);
     fprintf(fp, "bar_height=%.2f\n", layout->barHeight);
     fprintf(fp, "bar_width=%.2f\n", layout->barWidth);
     fprintf(fp, "btn_radius=%.2f\n", layout->btnRadius);
     fprintf(fp, "help_y=%.2f\n", layout->helpY);
+    fprintf(fp, "help_x=%.2f\n", layout->helpX);
+    fprintf(fp, "status_x=%.2f\n", layout->statusX);
     fprintf(fp, "btn_y=%.2f\n", layout->btnY);
     fprintf(fp, "btn_center_x=%.2f\n", layout->btnCenterX);
     fprintf(fp, "smart_play_y=%.2f\n", layout->smartPlayY);
+    fprintf(fp, "smart_play_x=%.2f\n", layout->smartPlayX);
     fprintf(fp, "sec_nav_y=%.2f\n", layout->secNavY);
+    fprintf(fp, "sec_nav_x=%.2f\n", layout->secNavX);
     fclose(fp);
     return 1;
 }
