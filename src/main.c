@@ -667,14 +667,14 @@ static void update_frame(void)
             if (portion > total) portion = total;
             char portionBuf[32];
             snprintf(portionBuf, sizeof(portionBuf), "%d/%d", portion, total);
-            float portionY = layout.secNavY - szSmall / 2.0f;
+            float secBtnRadius = 35.0f;
+            float portionY = layout.secNavY - szSmall - secBtnRadius - 10.0f;
             float portionSpacing = szSmall * 0.03f;
             Vector2 portionSize = MeasureTextEx(fontSmall, portionBuf, szSmall, portionSpacing);
             float portionX = layout.secNavX - portionSize.x / 2.0f;
             DrawTextEx(fontSmall, portionBuf, (Vector2){ portionX, portionY }, szSmall, portionSpacing, mutedColor);
 
             /* Section nav buttons */
-            float secBtnRadius = 35.0f;
             float secPrevX = layout.secNavX - 65.0f;
             float secNextX = layout.secNavX + 65.0f;
             float secBtnY_draw = layout.secNavY;
@@ -701,10 +701,10 @@ static void update_frame(void)
             DrawRectangleRounded(smartBtn, 0.3f, 8, btnFill);
             DrawRectangleRoundedLines(smartBtn, 0.3f, 8, btnBorder);
             float btnSpacing = szSmall * 0.03f;
-            Vector2 btnSize = MeasureTextEx(fontSmall, "HOLD", szSmall, btnSpacing);
+            Vector2 btnSize = MeasureTextEx(fontSmall, "Play", szSmall, btnSpacing);
             float tx = smartBtn.x + (smartBtn.width - btnSize.x) / 2.0f;
             float ty = smartBtn.y + (smartBtn.height - szSmall) / 2.0f;
-            DrawTextEx(fontSmall, "HOLD", (Vector2){ tx, ty }, szSmall, btnSpacing, btnTextColor);
+            DrawTextEx(fontSmall, "Play", (Vector2){ tx, ty }, szSmall, btnSpacing, btnTextColor);
         }
     }
     else

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Player</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0d1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #eaeaea;
+  }
+  #controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: center;
+  }
+  #controls button, #controls label {
+    background: #1a1a2e;
+    color: #eaeaea;
+    border: 2px solid #e94560;
+    border-radius: 6px;
+    padding: 8px 18px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #controls button:hover, #controls label:hover {
+    background: #e94560;
+  }
+  #controls input[type="file"] {
+    display: none;
+  }
+  #canvas-container {
+    position: relative;
+    display: inline-block;
+    border: 2px solid #333;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  canvas.emscripten {
+    display: block;
+  }
+  #status {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #8c8ca0;
+  }
+</style>
+</head>
+<body>
+  <div id="controls">
+    <label for="file-input">📂 Load MP3</label>
+    <input type="file" id="file-input" accept=".mp3">
+    <button id="fullscreen-btn">⛶ Fullscreen</button>
+  </div>
+  <div id="canvas-container">
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  </div>
+  <div id="status"></div>
+
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      onRuntimeInitialized: function() {
+        console.log('Emscripten runtime initialized');
+        document.getElementById('status').textContent = 'Ready \u2014 load an MP3 file';
+      }
+    };
+
+    document.getElementById('fullscreen-btn').addEventListener('click', function() {
+      var container = document.getElementById('canvas-container');
+      if (container.requestFullscreen) container.requestFullscreen();
+      else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+      else if (container.msRequestFullscreen) container.msRequestFullscreen();
+    });
+
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      console.log('File selected:', file.name, 'size:', file.size);
+      document.getElementById('status').textContent = 'Loading ' + file.name + '...';
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        var data = new Uint8Array(ev.target.result);
+        var filename = '/tmp/' + file.name;
+        console.log('Writing to virtual FS:', filename, 'bytes:', data.length);
+        try { FS.unlink(filename); } catch(ex) {}
+        try { FS.mkdir('/tmp'); } catch(ex) {}
+        FS.writeFile(filename, data);
+        console.log('Calling load_file_web...');
+        Module.ccall('load_file_web', null, ['string'], [filename]);
+        console.log('load_file_web returned');
+        document.getElementById('status').textContent = file.name;
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  </script>
+
+  {{{ SCRIPT }}}
+
+</body>
+</html>

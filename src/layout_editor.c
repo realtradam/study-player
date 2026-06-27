@@ -71,7 +71,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
             }
         }
 
-        /* 5: Smart play button (HOLD) */
+        /* 5: Smart play button (Play) */
         {
             Rectangle r = { layout->smartPlayX,
                            layout->smartPlayY, 200.0f, 80.0f };
@@ -250,7 +250,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
         Color f = (dragIndex == 5) ? highlightColor : fillColor;
         Rectangle r = { layout->smartPlayX,
                        layout->smartPlayY, 200.0f, 80.0f };
-        draw_label("HOLD", r, f, borderColor);
+        draw_label("Play", r, f, borderColor);
     }
 
     /* --- 6: Section nav buttons --- */
