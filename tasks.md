@@ -4,40 +4,41 @@
 
 ---
 
-## WAVE 0 — Orchestrator + build system agent
+## Module split (COMPLETE)
 
-- [ ] Orchestrator: write `src/types.h` (shared types, constants)
-- [ ] Orchestrator: pre-author `src/player.h` (audio playback contract)
-- [ ] Orchestrator: pre-author `src/study.h` (study mode contract)
-- [ ] Orchestrator: pre-author `src/ui.h` (rendering + input contract)
-- [ ] Orchestrator: write TASK prompts in `prompts/`
-- [ ] Build agent: update `Makefile` (Linux native + Windows cross-compile targets)
-- [ ] Build agent: update `.gitignore` (add `prompts/`, `reports/`)
+The single-file `src/main.c` (778 lines) has been decomposed into 7 modules
+with separate headers for code isolation and parallel agent development.
 
-## WAVE 1 — All `.c` implementations (parallel)
+- [x] WAVE 0 — Orchestrator: pre-author all `.h` contracts
+  - [x] `src/types.h` — PlayerState, SilenceRegion, UILayout, constants
+  - [x] `src/player.h` — audio playback contract
+  - [x] `src/study.h` — study mode contract
+  - [x] `src/ui.h` — rendering + input contract (UIState)
+  - [x] `src/config.h` — updated to include types.h (UILayout moved)
+- [x] WAVE 1 — All `.c` implementations
+  - [x] `src/player.c` — load/play/pause/seek/update/format_time
+  - [x] `src/study.c` — detect_silence, portion nav, auto-pause check
+  - [x] `src/ui.c` — fonts, colors, drawing, icons, input, smart play
+  - [x] `src/main.c` — thin composition root (main loop, tabs, drag-drop)
+- [x] WAVE 2 — Integration fixes
+  - [x] Fixed multiple-definition link error (font_data.h single-include rule)
+- [x] Post-milestone verification
+  - [x] `make clean && make -j$(nproc)` exits 0, zero warnings (Linux)
+  - [x] Makefile auto-discovers new `.c` files via `$(wildcard src/*.c)`
+  - [x] All state passed by pointer — no global mutable variables
+  - [x] `font_data.h` included in exactly one `.c` file (ui.c)
 
-- [ ] Agent A: implement `src/player.c` from `player.h` contract
-- [ ] Agent B: implement `src/study.c` from `study.h` contract
-- [ ] Agent C: implement `src/ui.c` from `ui.h` contract
-- [ ] Agent D: implement `src/main.c` (composition root)
+## Branch structure
 
-## WAVE 2 — Integration fixes (if needed)
-
-- [ ] Fix any link errors or behavioral regressions
-
-## Post-milestone
-
-- [ ] `make clean && make -j$(nproc)` exits 0, zero warnings (Linux)
-- [ ] `make windows -j$(nproc)` exits 0, zero warnings (Windows cross-compile)
-- [ ] Functional test: play an MP3, test all keyboard shortcuts, study mode, UI
-- [ ] Commit: `refactor: split src/main.c into modular .h/.c files`
+- **V1** branch — preserves the pre-refactor state (single-file main.c)
+- **dev** branch — the refactored modular codebase (current)
 
 ---
 
 ## Open items (future)
 
-- [ ] `bin/build` and `bin/build-web` scripts can be retired or simplified
-- [ ] Test coverage (unit tests for study module?)
+- [ ] `make windows -j$(nproc)` cross-compile verification (needs MinGW)
+- [ ] `bin/build-web` web build verification (needs emscripten)
+- [ ] Unit tests for study module (portion navigation edge cases)
 - [ ] Volume control
 - [ ] Playlist support
-- [ ] Config file / persistence

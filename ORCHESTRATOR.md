@@ -37,15 +37,18 @@ the `.h` contract is underspecified — that is a bug, not normal.
    declarations over pulling in heavy headers.
 2. **No cross-module `.c` includes** — ever. If module A needs module B, A
    includes `B.h`, never `B.c`.
-3. **All shared mutable state goes through `PlayerState*`** — no global
-   variables. File-scope statics are only for module-private state (e.g. fonts
-   in the UI module).
+3. **All shared mutable state goes through `PlayerState*`** (or `UIState*` for
+   UI-only state) — no global variables. File-scope statics are only for
+   module-private state (e.g. fonts in the ui module).
 4. **One `.o` per module** — each `.c` compiles independently. The linker
    resolves dependencies. This is what makes parallel-agent waves possible.
 5. **Zero warnings on `-Wall -Wextra`** — the build is the trust signal. If
    `make` barks, the wave is not green.
 6. **Raylib is the only external dependency** — no pulling in new libraries
    without a design decision.
+7. **`font_data.h` is a definition, not a declaration** — include it in exactly
+   ONE `.c` file (currently `ui.c`). Including it from multiple translation
+   units causes multiple-definition link errors.
 
 ---
 
@@ -236,13 +239,19 @@ authoritative.
   single file owns it. Summon a **temporary multi-knowledge agent** with
   read/write to the 2–3 relevant files (it MAY see `.c` files — exception to
   the visibility rule), as their temporary exclusive owner.
+- **Multiple-definition link error on `embedded_font_data`:** `font_data.h` is
+  an `xxd`-generated array definition, not a declaration. It must be included
+  in exactly ONE `.c` file (currently `ui.c`). If a new module needs the font
+  data, either route it through `ui.h` functions or move the include to a
+  single owner and expose `extern` declarations.
 - **CR (change-request) in a report:** if it's **build/config** (`Makefile`,
   `.gitignore`, `deps/` reference) the orchestrator edits it directly, then
   re-verifies with `make`. If it's **implementation** (a `.c` file), the
   orchestrator **summons the owning agent** — it does NOT edit `.c` files
   itself.
 - **Makefile changes:** the Makefile is orchestrator-owned (it's build wiring,
-  §6). If a module addition requires updating `SRCS`, the orchestrator does it.
+  §6). It uses `$(wildcard src/*.c)` so new modules auto-compile. Structural
+  changes (new targets, new platforms) are orchestrator-owned.
 
 ---
 
@@ -296,9 +305,9 @@ authoritative.
   windows` cross-compiles for Windows via MinGW. Both platforms must work.
   Use `#ifdef PLATFORM_LINUX` / `_GLFW_X11` vs `_GLFW_WIN32` guards where
   platform differences exist.
-- **No global mutable state.** All shared state passes through `PlayerState*`.
-  File-scope statics are for module-private data only (e.g. cached fonts in the
-  UI module).
+- **No global mutable state.** All shared state passes through `PlayerState*`
+  (or `UIState*` for UI-only state). File-scope statics are for module-private
+  data only.
 - **C99 only.** No C11/C17 features the compiler doesn't support. No C++
   in `.c` files.
 - **Raylib is the only external library.** No SDL, no GLFW standalone, no
@@ -315,7 +324,7 @@ authoritative.
   ORCHESTRATOR.md  the orchestrator's operating manual (this file)
   GLOSSARY.md      canonical vocabulary + aliases-to-avoid
   tasks.md         live progress checklist / milestone log
-  Makefile         build — orchestrator-owned, never touched by agents
+  Makefile         build — orchestrator-owned, never touched by module agents
   README.md        project overview, build instructions, usage guide
 
   .dispatch/
@@ -326,14 +335,6 @@ authoritative.
       zero-warnings.md
       contracts-are-h.md
 
-  .rules/                   original design plans (reference only)
-    plan/
-      plan.md
-      phase1.md
-      phase2.md
-      phase3.md
-    ideas/
-
   notes/
     restructure-plan.md     the full module split design + rationale + wave plan
 
@@ -341,21 +342,25 @@ authoritative.
   reports/   (gitignored — agent→orchestrator reports)
 
   src/
-    types.h          CONTRACT — shared types, enums, constants (PlayerState, etc.)
-    player.h         CONTRACT — audio playback: load, seek, play, pause, format_time
+    types.h          CONTRACT — shared types, enums, constants (PlayerState, SilenceRegion, UILayout)
+    player.h         CONTRACT — audio playback: load, seek, play, pause, update, format_time
     player.c         IMPL
-    study.h          CONTRACT — study mode: detect_silence, portion navigation
+    study.h          CONTRACT — study mode: detect_silence, portion navigation, auto-pause
     study.c          IMPL
-    ui.h             CONTRACT — rendering: init, render_frame, destroy
-    ui.c             IMPL
-    main.c           COMPOSITION ROOT — entry point + main loop
+    ui.h             CONTRACT — rendering + input: init, destroy, handle_input, render_player, render_empty
+    ui.c             IMPL (owns font_data.h include)
+    config.h         CONTRACT — UILayout persistence: config_load, config_save
+    config.c         IMPL
+    layout_editor.h  CONTRACT — layout editor tab: init, draw
+    layout_editor.c  IMPL (owns raygui implementation)
+    main.c           COMPOSITION ROOT — entry point + main loop + platform glue
 
   deps/
     raylib/          raylib library (built as static lib)
-    raygui/          raygui library (reserved, not yet used)
+    raygui/          raygui library (single-header, implemented in layout_editor.c)
 
   bin/
-    build            build script for desktop (Windows cross-compile)
+    build            build script for desktop (Linux native / Windows cross-compile)
     build-web        build script for WASM/web
     clean            clean build artifacts
     serve            serve web build locally
@@ -370,9 +375,9 @@ authoritative.
 
 ## 8. Current status & how to run
 
-See `tasks.md` for the live checklist. The project is a working single-file
-`src/main.c` (778 lines) that needs to be split into modules as described in
-`notes/restructure-plan.md`.
+See `tasks.md` for the live checklist. The module split is **complete** — the
+single-file `src/main.c` (778 lines) has been decomposed into 7 modules:
+`types.h`, `player`, `study`, `ui`, `config`, `layout_editor`, `main`.
 
 **Desktop build:**
 ```bash
@@ -398,6 +403,5 @@ make clean && make -j$(nproc)
 bin/clean    # removes build/ and build-web/
 ```
 
-When the module restructure is complete, `make` builds for the host platform.
-`make windows` cross-compiles for Windows via MinGW. The font header generation
-is a make prerequisite.
+The font header generation is a make prerequisite — `build/font_data.h` is
+generated by `xxd -i` from the first `.otf`/`.ttf` in `resources/`.

@@ -31,10 +31,19 @@ You MUST NOT write to `src/*` or any other source files.
 - Font header generation: `build/font_data.h` is a prerequisite built by
   running `xxd -i` on the font file in `resources/`. If no font file exists,
   the build should still work (font_data.h just won't define `FONT_EMBEDDED`).
+  **`font_data.h` is an array definition, not a declaration** — it must be
+  included in exactly ONE `.c` file (currently `ui.c`). Multiple includes cause
+  multiple-definition link errors.
 - The `bin/build-web` script builds for Web/WASM via `emcc` + `emar`. Keep it
   functional.
 - All SRCS should be `$(wildcard src/*.c)` so new modules auto-compile.
 - Use `-j$(nproc)` in any make invocation inside scripts for parallelism.
+
+## bin/ script conventions
+- Every script starts with `#!/usr/bin/env bash` and `set -euo pipefail`.
+- Every script derives `SCRIPT_DIR` and `PROJECT_DIR` and `cd "$PROJECT_DIR"`.
+- Every script forwards extra args via `"$@"`.
+- One script per operation — the filename describes what it does.
 
 ## Verification
 1. `make clean && make -j$(nproc)` — exits 0, zero warnings from project code

@@ -1,3 +1,21 @@
+# Build artifacts
 build/
+build-web/
+
+# External dependencies (cloned separately)
 deps/
+
+# Runtime assets (fonts — embedded at build time)
 resources/
+
+# Runtime config
+study-player.cfg
+
+# Agent harness scratch (orchestrator→agent prompts, agent→orchestrator reports)
+prompts/
+reports/
+
+# OS / editor
+.DS_Store
+*.swp
+*~

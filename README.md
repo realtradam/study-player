@@ -4,6 +4,25 @@ A keyboard-driven MP3 player built with [raylib](https://github.com/raysan5/rayl
 
 <img width="1923" height="1125" alt="image" src="https://github.com/user-attachments/assets/a2e2363e-cc0a-4936-8b04-0f32886ff9d8" />
 
+## Architecture
+
+The project is built from composable modules, each a `.h` contract + `.c`
+implementation pair. This separation enables parallel agent development —
+modules communicate only through header-file contracts.
+
+```
+src/types.h          shared types: PlayerState, SilenceRegion, UILayout, constants
+src/player.{h,c}     audio playback: load, play, pause, seek, update, format_time
+src/study.{h,c}      study mode: silence detection, portion navigation, auto-pause
+src/ui.{h,c}        rendering + input: fonts, colors, drawing, keyboard/mouse
+src/config.{h,c}    UI layout persistence (study-player.cfg)
+src/layout_editor.{h,c}  layout editor tab (drag-to-reposition)
+src/main.c           composition root: main loop, tab switching, platform glue
+```
+
+See `GLOSSARY.md` for the canonical vocabulary and `ORCHESTRATOR.md` for the
+multi-agent development workflow.
+
 ### Dependencies
 
 Clone the following repositories into the `deps/` directory:
@@ -35,14 +54,27 @@ If no font file is present, the app falls back to the built-in raylib default fo
 ### Building
 
 ```bash
-bin/build
+# Linux native
+make -j$(nproc)
+
+# Windows cross-compile
+make windows -j$(nproc)
 ```
 
-The output binary is `build/study-player.exe`.
+The output binary is `build/study-player` (Linux) or `build/study-player.exe` (Windows).
+
+Alternatively, use the convenience scripts:
+
+```bash
+bin/build      # desktop build (Linux native + Windows cross-compile)
+bin/clean      # remove build artifacts
+bin/build-web  # WASM/web build via emscripten
+bin/serve      # serve web build on port 8080
+```
 
 ### Usage
 
-Run the `.exe` on Windows (or under Wine). Drag an `.mp3` file onto the window to load it.
+Run the binary on Linux (or the `.exe` on Windows / under Wine). Drag an `.mp3` file onto the window to load it.
 
 | Key | Action |
 |---|---|
@@ -89,10 +121,13 @@ When Study Mode is **off**, C pauses and N resumes without any section-seeking b
 ### Project Structure
 
 ```
-src/main.c        Application source
-deps/raylib/      raylib (cloned separately)
-deps/raygui/      raygui (cloned separately)
-build/            Build output (gitignored)
-resources/        Font files (gitignored)
-bin/              Build and utility scripts
+src/               modular C source (one .h/.c pair per module)
+deps/raylib/       raylib (cloned separately)
+deps/raygui/       raygui (cloned separately)
+build/             Build output (gitignored)
+resources/         Font files (gitignored)
+bin/               Build and utility scripts
+AGENTS.md          Subagent constitution (C99 rules, module boundaries)
+ORCHESTRATOR.md    Multi-agent orchestration workflow
+GLOSSARY.md        Canonical vocabulary
 ```

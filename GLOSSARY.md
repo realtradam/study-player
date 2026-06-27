@@ -7,25 +7,30 @@
 
 | Term | Definition | Avoid calling it... |
 |------|-----------|-------------------|
-| **PlayerState** | The single struct holding all mutable runtime state: loaded audio, playback status, silence regions, study mode flag | "app state", "context", "global state" |
+| **PlayerState** | The single struct holding all mutable runtime state: loaded audio, playback status, silence regions, study mode flag. Defined in `types.h`. | "app state", "context", "global state" |
+| **UIState** | The struct holding UI-only state: fonts, colors, and interaction flags (smartPlayHeld). Defined in `ui.h`. | "ui context", "render state" |
+| **UILayout** | Pixel positions for every on-screen element, persisted to `study-player.cfg`. Defined in `types.h`, loaded/saved by the config module. | "layout config", "positions" |
 | **speaking portion** | A contiguous segment of audio between two silence regions (i.e. the "meaningful content"). 0-based index. | "section", "segment", "clip", "part" |
 | **silence region** | A detected gap in audio where amplitude stays below threshold for ≥ minDuration. Normalized 0–1. | "pause", "gap", "quiet zone" |
 | **study mode** | Boolean toggle (`PlayerState.studyMode`). When ON, auto-pauses at silence boundaries. | "auto-pause mode", "learning mode" |
 | **seek** | Jump playback position to a specific time (seconds). `player_seek(PlayerState*, float)`. | "scrub", "jump", "skip" |
-| **auto-pause** | The study-mode mechanism that pauses playback when entering a silence region. | "auto-stop", "silence break" |
+| **auto-pause** | The study-mode mechanism that pauses playback when entering a silence region. Implemented by `study_auto_pause_check`. | "auto-stop", "silence break" |
 | **padding zone** | The 0.25s "breathing room" added around speaking portions (silence shrunk by 0.25s on each side) to avoid auto-pausing during natural speech pauses. | "grace period", "buffer zone" |
 | **portion navigation** | Jumping between speaking portions via keys (V/B) or section buttons. | "chapter skip", "section nav" |
-| **embedded font** | A `.otf`/`.ttf` font file converted to `build/font_data.h` via `xxd`, compiled into the binary. Guarded by `#if FONT_EMBEDDED`. | "baked font", "built-in font" |
+| **smart play** | A hold-to-override button that resumes playback and suppresses auto-pause while held. State tracked in `UIState.smartPlayHeld`. | "hold play", "override button" |
+| **embedded font** | A `.otf`/`.ttf` font file converted to `build/font_data.h` via `xxd`, compiled into the binary. Guarded by `#if FONT_EMBEDDED`. Included in exactly one `.c` file (`ui.c`). | "baked font", "built-in font" |
 
 ## Module names
 
 | Module | Files | Owns |
 |--------|-------|------|
-| **types** | `src/types.h` | `PlayerState`, `SilenceRegion`, all enums, defines, constants |
-| **player** | `src/player.h`, `src/player.c` | Audio loading, playback control, seek, time formatting |
-| **study** | `src/study.h`, `src/study.c` | Silence detection, study mode logic, portion navigation |
-| **ui** | `src/ui.h`, `src/ui.c` | All rendering, font/color initialization, input handling |
-| **main** | `src/main.c` | Entry point, main loop, platform glue |
+| **types** | `src/types.h` | `PlayerState`, `SilenceRegion`, `UILayout`, all constants (`SCREEN_W`, `SCREEN_H`, `MAX_*`). Pure header — no `.c`. |
+| **player** | `src/player.h`, `src/player.c` | Audio loading, playback control, seek, music-stream update, time formatting |
+| **study** | `src/study.h`, `src/study.c` | Silence detection, speaking-portion navigation, auto-pause logic |
+| **ui** | `src/ui.h`, `src/ui.c` | Font/color initialization, all rendering, all input handling (player tab), `UIState` |
+| **config** | `src/config.h`, `src/config.c` | `UILayout` persistence (load/save to `study-player.cfg`) |
+| **layout_editor** | `src/layout_editor.h`, `src/layout_editor.c` | Layout editor tab (drag-to-reposition UI elements), raygui implementation |
+| **main** | `src/main.c` | Entry point, main loop, tab switching, drag-drop/web file loading, platform glue |
 
 ## Build terms
 
