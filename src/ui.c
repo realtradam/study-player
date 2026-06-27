@@ -426,34 +426,6 @@ void ui_render_player(const UIState *ui, const PlayerState *state,
         float ty = smartBtn.y + (smartBtn.height - ui->szSmall) / 2.0f;
         DrawTextEx(ui->fontSmall, "Play", (Vector2){ tx, ty }, ui->szSmall, btnSpacing, btnTextColor);
     }
-
-    /* --- Help text --- */
-    {
-        float helpSpacing = ui->szHelp * 0.03f;
-        DrawTextEx(ui->fontHelp,
-                   "C: pause  N: play  Space(hold): override  V/B: prev/next  Arrows: seek  0-9: jump",
-                   (Vector2){ layout->helpX, layout->helpY },
-                   ui->szHelp, helpSpacing, ui->mutedColor);
-    }
-
-    /* --- Study mode checkbox --- */
-    {
-        float helpSpacing = ui->szHelp * 0.03f;
-        const char *label = "Study Mode";
-        float cbSize = 30.0f;
-        Vector2 labelSize = MeasureTextEx(ui->fontHelp, label, ui->szHelp, helpSpacing);
-        float totalW = cbSize + 10 + labelSize.x;
-        float cbX = SCREEN_W - totalW - layout->helpX;
-        float cbY = layout->helpY + (ui->szHelp - cbSize) / 2.0f;
-
-        Rectangle cbRect = { cbX, cbY, cbSize, cbSize };
-        DrawRectangleLinesEx(cbRect, 2, ui->mutedColor);
-        if (state->studyMode)
-            DrawRectangleRec((Rectangle){ cbX + 6, cbY + 6, cbSize - 12, cbSize - 12 }, ui->accentColor);
-        DrawTextEx(ui->fontHelp, label,
-                   (Vector2){ cbX + cbSize + 10, layout->helpY },
-                   ui->szHelp, helpSpacing, ui->mutedColor);
-    }
 }
 
 void ui_render_empty(const UIState *ui, const UILayout *layout)
@@ -467,4 +439,31 @@ void ui_render_empty(const UIState *ui, const UILayout *layout)
     draw_text_centered(ui->fontMed, "Drag an MP3 file here",
                        (float)SCREEN_W / 2.0f, SCREEN_H / 2.0f - 20, ui->szMed, ui->mutedColor);
 #endif
+}
+
+void ui_render_overlay(const UIState *ui, const PlayerState *state,
+                       const UILayout *layout)
+{
+    /* --- Help text --- */
+    float helpSpacing = ui->szHelp * 0.03f;
+    DrawTextEx(ui->fontHelp,
+               "C: pause  N: play  Space(hold): override  V/B: prev/next  Arrows: seek  0-9: jump",
+               (Vector2){ layout->helpX, layout->helpY },
+               ui->szHelp, helpSpacing, ui->mutedColor);
+
+    /* --- Study mode checkbox --- */
+    const char *label = "Study Mode";
+    float cbSize = 30.0f;
+    Vector2 labelSize = MeasureTextEx(ui->fontHelp, label, ui->szHelp, helpSpacing);
+    float totalW = cbSize + 10 + labelSize.x;
+    float cbX = SCREEN_W - totalW - layout->helpX;
+    float cbY = layout->helpY + (ui->szHelp - cbSize) / 2.0f;
+
+    Rectangle cbRect = { cbX, cbY, cbSize, cbSize };
+    DrawRectangleLinesEx(cbRect, 2, ui->mutedColor);
+    if (state->studyMode)
+        DrawRectangleRec((Rectangle){ cbX + 6, cbY + 6, cbSize - 12, cbSize - 12 }, ui->accentColor);
+    DrawTextEx(ui->fontHelp, label,
+               (Vector2){ cbX + cbSize + 10, layout->helpY },
+               ui->szHelp, helpSpacing, ui->mutedColor);
 }

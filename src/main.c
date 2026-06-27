@@ -10,6 +10,7 @@
 #include "raygui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "types.h"
@@ -36,6 +37,11 @@ static UILayout    layout;
 static char        exeDir[512];
 static int         activeTab = 0;
 static int         prevTab   = 0;
+
+/* --- Screenshot mode (env: STUDY_PLAYER_SCREENSHOT=filename) --- */
+static const char *screenshotFile = NULL;
+static int         screenshotFrameCount = 0;
+#define SCREENSHOT_DELAY_FRAMES 60  /* ~1 second at 60fps for window to fully map */
 
 /* ------------------------------------------------------------------ */
 /* File loading (drag-drop desktop / JS callback web)                  */
@@ -108,11 +114,54 @@ static void update_frame(void)
             ui_render_player(&ui, &state, &layout);
         else
             ui_render_empty(&ui, &layout);
+        ui_render_overlay(&ui, &state, &layout);
     } else {
         layout_editor_draw(exeDir, &layout);
     }
 
     EndDrawing();
+
+    /* --- Screenshot mode: render to FBO, save as PNG, then exit --- */
+    if (screenshotFile) {
+        screenshotFrameCount++;
+        if (screenshotFrameCount >= SCREENSHOT_DELAY_FRAMES) {
+            RenderTexture2D target = LoadRenderTexture(SCREEN_W, SCREEN_H);
+            BeginTextureMode(target);
+                ClearBackground(ui.bgColor);
+                /* Explicitly fill the entire texture with bg color + alpha 255 */
+                DrawRectangle(0, 0, SCREEN_W, SCREEN_H, ui.bgColor);
+                char *tabNames2[] = { "Player", "Layout" };
+                GuiTabBar((Rectangle){ 0, 10, SCREEN_W, 32 }, tabNames2, 2, &activeTab);
+                if (state.loaded)
+                    ui_render_player(&ui, &state, &layout);
+                else
+                    ui_render_empty(&ui, &layout);
+                ui_render_overlay(&ui, &state, &layout);
+            EndTextureMode();
+
+            /* Read from the render texture — it has proper content */
+            Image img = LoadImageFromTexture(target.texture);
+            ImageFlipVertical(&img);
+            /* ClearBackground doesn't fill FBO alpha on some Mesa drivers.
+             * Manually replace all transparent (alpha=0) pixels with the
+             * background color, so the saved PNG has a proper background. */
+            if (img.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+                unsigned char *px = (unsigned char *)img.data;
+                for (int i = 0; i < img.width * img.height * 4; i += 4) {
+                    if (px[i+3] == 0) {
+                        px[i]   = ui.bgColor.r;
+                        px[i+1] = ui.bgColor.g;
+                        px[i+2] = ui.bgColor.b;
+                        px[i+3] = 255;
+                    }
+                }
+            }
+            ExportImage(img, screenshotFile);
+            UnloadImage(img);
+            UnloadRenderTexture(target);
+            screenshotFile = NULL;
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,6 +173,11 @@ int main(void)
     InitWindow(SCREEN_W, SCREEN_H, "Study Player");
     InitAudioDevice();
     SetTargetFPS(60);
+
+    /* --- Screenshot mode (env-controlled, for automated testing) --- */
+    screenshotFile = getenv("STUDY_PLAYER_SCREENSHOT");
+    if (screenshotFile)
+        MaximizeWindow();  /* force window to be mapped/visible */
 
     ui_init(&ui);
 
@@ -156,8 +210,11 @@ int main(void)
 #ifdef PLATFORM_WEB
     emscripten_set_main_loop(update_frame, 0, 1);
 #else
-    while (!WindowShouldClose())
+    while (!WindowShouldClose()) {
         update_frame();
+        if (screenshotFile == NULL && screenshotFrameCount >= SCREENSHOT_DELAY_FRAMES)
+            break;  /* screenshot taken, exit */
+    }
 #endif
 
     player_unload(&state);

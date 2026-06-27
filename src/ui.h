@@ -60,3 +60,8 @@ void ui_render_player(const UIState *ui, const PlayerState *state,
 
 /* Draw the "no file loaded" splash screen. */
 void ui_render_empty(const UIState *ui, const UILayout *layout);
+
+/* Draw the help text and study-mode checkbox (always visible on tab 0).
+ * Call after ui_render_player or ui_render_empty. */
+void ui_render_overlay(const UIState *ui, const PlayerState *state,
+                       const UILayout *layout);
