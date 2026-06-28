@@ -244,5 +244,67 @@ module StudyPlayer
       start_pos = speaking_portion_start(regions, portion)
       pos >= start_pos && pos < start_pos + pad_norm
     end
+
+    # ------------------------------------------------------------------
+    # Auto-pause FSM (pure — no side effects, testable without raylib/ECS)
+    #
+    # Ported from ../source/src/study.c study_auto_pause_check
+    # ------------------------------------------------------------------
+    #
+    # Given the current playback position, silence regions, and hold-state
+    # flags, returns a decision hash with the imperative actions to take.
+    #
+    # Returns nil if no action possible (study_mode off, not playing,
+    # or duration <= 0).
+    # Otherwise returns:
+    #   { pause: bool, seek_target: Float|nil,
+    #     was_in_silence: bool, last_silence_idx: int }
+    def self.auto_pause_check(current_time, duration, silence_regions,
+                               study_mode:, playing:, was_in_silence:,
+                               last_silence_idx:,
+                               smart_play_held: false, space_held: false)
+      return nil unless study_mode
+      return nil unless playing
+      return nil if duration <= 0.0
+
+      pos = current_time / duration
+      sil_idx = find_silence_at(silence_regions, pos)
+      now_in_silence = sil_idx >= 0
+
+      if smart_play_held || space_held
+        return {
+          pause: false,
+          seek_target: nil,
+          was_in_silence: now_in_silence,
+          last_silence_idx: now_in_silence ? sil_idx : last_silence_idx,
+        }
+      end
+
+      if now_in_silence && !was_in_silence
+        target = portion_seek_target(duration, silence_regions, sil_idx + 1)
+        return {
+          pause: true,
+          seek_target: target,
+          was_in_silence: true,
+          last_silence_idx: sil_idx,
+        }
+      elsif !now_in_silence && was_in_silence
+        portion_idx = current_speaking_portion(silence_regions, pos)
+        target = portion_seek_target(duration, silence_regions, portion_idx)
+        return {
+          pause: true,
+          seek_target: target,
+          was_in_silence: false,
+          last_silence_idx: last_silence_idx,
+        }
+      end
+
+      {
+        pause: false,
+        seek_target: nil,
+        was_in_silence: now_in_silence,
+        last_silence_idx: now_in_silence ? sil_idx : last_silence_idx,
+      }
+    end
   end
 end

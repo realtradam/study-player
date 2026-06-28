@@ -18,7 +18,7 @@ module StudyPlayer
     #   0 .. 9         — seek to N×10% of duration
     #   ESC            — quit
     #
-    # Phase 4 adds:  V/B (prev/next portion), SMART_PLAY hold override
+    # Phase 4 adds:  M (study mode toggle), S (smart play hold), V/B (portion nav)
 
     SEEK_SMALL   = 5.0    # seconds: LEFT / RIGHT
     SEEK_LARGE   = 15.0   # seconds: UP / DOWN

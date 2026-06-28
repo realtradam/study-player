@@ -250,6 +250,95 @@ module StudyPlayer
       start_pos = speaking_portion_start(regions, portion)
       pos >= start_pos && pos < start_pos + pad_norm
     end
+
+    # ------------------------------------------------------------------
+    # Auto-pause FSM (pure — no side effects, testable without raylib/ECS)
+    #
+    # Ported from ../source/src/study.c study_auto_pause_check
+    # ------------------------------------------------------------------
+    #
+    # Given the current playback position, silence regions, and hold-state
+    # flags, returns a decision hash with the imperative actions to take.
+    #
+    # Inputs:
+    #   current_time   — playback position in seconds
+    #   duration       — total audio duration in seconds
+    #   silence_regions — Array of {start:, end:} (normalized, padded)
+    #   study_mode:    — bool, is study mode active?
+    #   playing:       — bool, is audio currently playing?
+    #   was_in_silence:— bool, previous frame's silence state
+    #   last_silence_idx: — int, index of last silence region we were in
+    #   smart_play_held:   — bool, is smart-play key held (suppress auto-pause)?
+    #   space_held:        — bool, is space key held (suppress auto-pause)?
+    #
+    # Returns nil if no action possible (study_mode off, not playing,
+    #   or duration <= 0).
+    # Otherwise returns:
+    #   { pause: bool, seek_target: Float|nil,
+    #     was_in_silence: bool, last_silence_idx: int }
+    #
+    # When pause is true, the caller MUST:
+    #   1. Pause the audio stream
+    #   2. Seek to seek_target
+    #   3. Set current_time = seek_target
+    #   4. Set playing = false + skip_auto_update = 3
+    #   5. Update was_in_silence / last_silence_idx from the decision
+    #
+    # When pause is false (override held, or no state change), the caller
+    # still updates was_in_silence / last_silence_idx tracking.
+    def self.auto_pause_check(current_time, duration, silence_regions,
+                               study_mode:, playing:, was_in_silence:,
+                               last_silence_idx:,
+                               smart_play_held: false, space_held: false)
+      return nil unless study_mode
+      return nil unless playing
+      return nil if duration <= 0.0
+
+      pos = current_time / duration
+      sil_idx = find_silence_at(silence_regions, pos)
+      now_in_silence = sil_idx >= 0
+
+      if smart_play_held || space_held
+        # Override: track silence state but DO NOT auto-pause.
+        return {
+          pause: false,
+          seek_target: nil,
+          was_in_silence: now_in_silence,
+          last_silence_idx: now_in_silence ? sil_idx : last_silence_idx,
+        }
+      end
+
+      if now_in_silence && !was_in_silence
+        # Just entered a silence region.
+        # Action: pause and seek to start of NEXT speaking portion.
+        target = portion_seek_target(duration, silence_regions, sil_idx + 1)
+        return {
+          pause: true,
+          seek_target: target,
+          was_in_silence: true,
+          last_silence_idx: sil_idx,
+        }
+      elsif !now_in_silence && was_in_silence
+        # Just exited a silence region (entered a speaking portion).
+        # Action: pause and land at start of CURRENT speaking portion.
+        portion_idx = current_speaking_portion(silence_regions, pos)
+        target = portion_seek_target(duration, silence_regions, portion_idx)
+        return {
+          pause: true,
+          seek_target: target,
+          was_in_silence: false,
+          last_silence_idx: last_silence_idx,
+        }
+      end
+
+      # No boundary crossing — just track current state.
+      {
+        pause: false,
+        seek_target: nil,
+        was_in_silence: now_in_silence,
+        last_silence_idx: now_in_silence ? sil_idx : last_silence_idx,
+      }
+    end
   end
 end
 
@@ -397,7 +486,7 @@ module StudyPlayer
     SEEK_LARGE   = 15.0   # seconds: UP / DOWN
     SEEK_PCT_STEP = 0.10  # 10%: J / L
 
-    def self.build_system(world, player_entity, runtime, playback_state)
+    def self.build_system(world, player_entity, runtime, playback_state, study_state)
       world.system("Input", with: [], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb
@@ -492,6 +581,15 @@ module StudyPlayer
             pb[:seek_target] = target
             pb[:seek_pending] = true
             player_entity.set(playback_state, pb)
+          end
+        end
+
+        # --- Study mode toggle: M key ---
+        if Rl.key_pressed?(:m)
+          ss_current = player_entity.get(study_state)
+          if ss_current
+            ss_current[:study_mode] = !ss_current[:study_mode]
+            player_entity.set(study_state, ss_current)
           end
         end
       end
@@ -658,6 +756,73 @@ module StudyPlayer
 end
 
 # =============================================================================
+# System: StudySystem — Auto-pause FSM (imperative shell)
+#
+# Runs the pure Core.auto_pause_check FSM every frame during ON_UPDATE
+# (after UpdateSystem). Applies pause/seek decisions to the audio engine.
+#
+# See: notes/study-player-rewrite-plan.md §3, §8
+# Ported from: ../source/src/study.c study_auto_pause_check
+# =============================================================================
+
+module StudyPlayer
+  class StudySystem
+    def self.build(world, player_entity, runtime, playback_state, study_state)
+      world.system("Study", with: [], phase: Flecs::ON_UPDATE) do
+        pb = player_entity.get(playback_state)
+        ss = player_entity.get(study_state)
+        next unless pb && ss && pb[:loaded]
+
+        regions = runtime.silence_regions
+        next unless regions && regions.length >= 0
+
+        # Resolve held-key overrides on this frame
+        smart_held = Rl.key_down?(:s)
+        space_held = Rl.key_down?(:space)
+
+        # Update smart_play_held in the component (for UI display)
+        if ss[:smart_play_held] != smart_held
+          ss[:smart_play_held] = smart_held
+          player_entity.set(study_state, ss)
+        end
+
+        duration = runtime.audio.duration
+
+        decision = Core.auto_pause_check(
+          pb[:current_time],
+          duration,
+          regions,
+          study_mode: ss[:study_mode],
+          playing: pb[:playing],
+          was_in_silence: ss[:was_in_silence],
+          last_silence_idx: ss[:last_silence_idx],
+          smart_play_held: smart_held,
+          space_held: space_held,
+        )
+
+        next unless decision
+
+        # Always update silence tracking state from decision
+        ss[:was_in_silence]   = decision[:was_in_silence]
+        ss[:last_silence_idx] = decision[:last_silence_idx]
+        player_entity.set(study_state, ss)
+
+        # Apply pause + seek if the decision demands it
+        if decision[:pause] && decision[:seek_target]
+          target = decision[:seek_target]
+          runtime.audio.pause
+          runtime.audio.seek(target)
+          pb[:current_time]     = target
+          pb[:playing]          = false
+          pb[:skip_auto_update] = 3  # Same cooldown as manual seek
+          player_entity.set(playback_state, pb)
+        end
+      end
+    end
+  end
+end
+
+# =============================================================================
 # Composition Root — init, components, systems, main loop
 # =============================================================================
 
@@ -717,8 +882,9 @@ module StudyPlayer
     # --- Register systems ---
     LoadSystem.build(world, player_entity, runtime, af, pb, nl)
     SeekSystem.build(world, player_entity, runtime, pb)
-    InputAdapter.build_system(world, player_entity, runtime, pb)
+    InputAdapter.build_system(world, player_entity, runtime, pb, ss)
     UpdateSystem.build(world, player_entity, runtime, pb)
+    StudySystem.build(world, player_entity, runtime, pb, ss)
 
     # --- File drop check system (drag-and-drop fallback) ---
     world.system("CheckFileDrop", with: [], phase: Flecs::PRE_UPDATE) do
@@ -826,8 +992,33 @@ module StudyPlayer
                          color: Rl::Color.new(255, 200, 100, 255))
           end
 
-          # Controls help
-          Rl.draw_text(text: "SPACE: play/pause  LEFT/RIGHT: -5s/+5s  V/B: prev/next portion  J/L: -10%/+10%  0-9: n×10%  ESC: quit",
+          # --- Phase 4: Study mode indicator + smart play status ---
+          ss_current = player_entity.get(ss)
+          study_on = ss_current && ss_current[:study_mode]
+          smart_h  = ss_current && ss_current[:smart_play_held]
+          in_sil   = ss_current && ss_current[:was_in_silence]
+
+          # Study mode indicator (top-right)
+          mode_text = study_on ? "STUDY MODE: ON" : "STUDY MODE: OFF"
+          mode_color = study_on ? Rl::Color.new(100, 255, 100, 255) : Rl::Color.new(150, 150, 150, 255)
+          Rl.draw_text(text: mode_text,
+                       x: SCREEN_W - 220, y: 20, font_size: 18,
+                       color: mode_color)
+
+          # Smart play / hold indicator
+          if smart_h
+            Rl.draw_text(text: "S: SMART PLAY (HELD — auto-pause suppressed)",
+                         x: SCREEN_W - 420, y: 50, font_size: 14,
+                         color: Rl::Color.new(255, 255, 100, 255))
+          end
+          if in_sil && study_on
+            Rl.draw_text(text: "[IN SILENCE REGION]",
+                         x: SCREEN_W / 2 - 70, y: 480, font_size: 16,
+                         color: Rl::Color.new(255, 100, 100, 255))
+          end
+
+          # Controls help (updated for Phase 4)
+          Rl.draw_text(text: "SPACE: play/pause  LEFT/RIGHT: -5s/+5s  V/B: prev/next portion  S: hold to override  M: study mode  ESC: quit",
                        x: 20, y: SCREEN_H - 60, font_size: 14,
                        color: Rl::Color.new(120, 120, 140, 255))
 
@@ -845,8 +1036,8 @@ module StudyPlayer
           Rl.draw_text(text: "Drop an audio file or run with: game study_player.rb <audio.mp3>",
                        x: SCREEN_W / 2 - 330, y: 380, font_size: 18,
                        color: Rl::Color.new(233, 69, 96, 255))
-          Rl.draw_text(text: "SPACE: start  ESC: quit",
-                       x: SCREEN_W / 2 - 100, y: 430, font_size: 16,
+          Rl.draw_text(text: "SPACE: start  M: study mode  ESC: quit",
+                       x: SCREEN_W / 2 - 130, y: 430, font_size: 16,
                        color: Rl::Color.new(120, 120, 140, 255))
         end
       end
