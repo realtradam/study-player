@@ -1,0 +1,19 @@
+diff --git a/src/platforms/rcore_web.c b/src/platforms/rcore_web.c
+--- a/src/platforms/rcore_web.c
++++ b/src/platforms/rcore_web.c
+@@ -1752,6 +1752,15 @@ static EM_BOOL EmscriptenPointerlockCallback(int eventType, const EmscriptenPointerlockChangeEvent *pointerlockChangeEvent, void *userData)
+ {
+     CORE.Input.Mouse.cursorLocked = EM_ASM_INT( { if (document.pointerLockElement) return 1; }, 0);
+ 
++    // raylib-jamstack: raylib 6.0 regression — this callback stopped setting
++    // cursorHidden (5.5 set cursorHidden here; 6.0 only sets cursorLocked).
++    // IsCursorHidden() reads cursorHidden, so without this, DisableCursor() on
++    // web never makes IsCursorHidden() true, breaking games that gate repeated
++    // pointer-lock requests on !IsCursorHidden() (e.g. physics_playground), which
++    // then spam emscripten_request_pointerlock() every frame and the browser
++    // rejects it. Restore 5.5 semantics: cursorHidden mirrors cursorLocked.
++    CORE.Input.Mouse.cursorHidden = CORE.Input.Mouse.cursorLocked;
++
+     if (CORE.Input.Mouse.cursorLocked)
+     {
+         CORE.Input.Mouse.lockedPosition = CORE.Input.Mouse.currentPosition;

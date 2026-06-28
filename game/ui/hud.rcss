@@ -1,0 +1,42 @@
+body {
+    font-family: Mononoki Nerd Font Mono;
+    font-size: 14px;
+    color: #cdd6f4;
+}
+
+/* Translucent rounded HUD panels, tilted in 3D toward the screen centre
+   (left panel pivots on its outer/left edge, right panel on its outer/right
+   edge, so the inner edges angle forward toward the viewer). */
+#hud-left, #hud-right {
+    position: absolute;
+    top: 14px;
+    padding: 10px 16px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #45475a;
+    border-radius: 12px;
+}
+
+#hud-left {
+    left: 14px;
+    width: 480px;
+    transform-origin-x: 0%;
+    transform-origin-y: 50%;
+}
+
+#hud-right {
+    left: 630px;
+    width: 76px;
+    height: 22px;
+    transform-origin-x: 100%;
+    transform-origin-y: 50%;
+}
+
+.line {
+    display: block;
+    margin-bottom: 3px;
+}
+
+#hud-fps {
+    color: #a6e3a1;
+}

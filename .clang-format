@@ -1,0 +1,78 @@
+# clang-format config for raylib-jamstack C/C++ bindings.
+#
+# Codifies the dominant style of the hand-written C/C++ mrbgem sources
+# (mrbgems/*/src/* + src/main.c): Allman braces, 2-space indent, ~100-col limit,
+# return type on its own line for top-level function definitions. Verified to
+# produce ZERO diff on raylib_bindings.c (the most style-consistent file); other
+# files have real inconsistencies (single-line function defs, semicolon-chained
+# statements) that `clang-format -i` will normalize.
+#
+# Scope: hand-written sources only. raylib_gen.c (generated) and vendor/ are
+# excluded (see bin/lint). Never hand-edit raylib_gen.c.
+#
+# Run manually:  bin/lint --check-c    (report / dry-run)
+#               bin/lint --fix-c      (rewrite in place)
+# Run directly:  clang-format -i <files>           (fix in place)
+#               clang-format --dry-run --Werror <files>  (report)
+#
+# See .agents/knowledge/linting.md for the rationale + how it fits with the
+# LSP setup (clangd's --clang-tidy stays OFF for the live-edit path; manual
+# clang-format/clang-tidy are deliberate, separate steps).
+
+BasedOnStyle: LLVM
+
+# --- Indentation ---
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 2
+IndentCaseLabels: false
+IndentGotoLabels: false
+NamespaceIndentation: None
+IndentWrappedFunctionNames: false
+
+# --- Braces: Allman (open brace on its own line) ---
+BreakBeforeBraces: Allman
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+# --- Return type on its own line for top-level function definitions ---
+# This matches raylib_bindings.c's style (return type, then name+args, then {).
+AlwaysBreakAfterReturnType: TopLevelDefinitions
+AlwaysBreakAfterDefinitionReturnType: TopLevel
+
+# --- Column limit ---
+ColumnLimit: 100
+ReflowComments: false          # don't rewrap hand-written /* ... */ comments
+
+# --- Includes ---
+SortIncludes: Never             # preserve the commented, grouped include order
+IncludeBlocks: Preserve
+
+# --- Alignment ---
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: true
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# --- Spacing ---
+SpaceBeforeParens: ControlStatements
+SpaceBeforeSquareBrackets: false
+SpaceAroundPointerQualifiers: Default
+BitFieldColonSpacing: Both
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpacesInContainerLiterals: false
+
+# --- Pointers ---
+PointerAlignment: Right           # mrb_state *mrb (not mrb_state* mrb)
+
+# --- Misc ---
+Cpp11BracedListStyle: true       # {.name = name} not { .name = name }  (no inner spaces)

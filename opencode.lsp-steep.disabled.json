@@ -1,0 +1,13 @@
+{
+  "_comment_disabled": "Steep (RBS type checker) LSP config — DISABLED on 2026-06-25. MOVED OUT of opencode.json because the Steep langserver drifted into a corrupted state after ~3h (reported phantom Ruby::SyntaxError on a comment line that a fresh `steep check` CLI does not reproduce) and re-errored on every .rb edit, hanging the editor's LSP per-edit. A fresh `steep check` (CLI) stays GREEN (it is the authoritative type-check gate in tools/check-types.sh). To RE-ENABLE live Steep diagnostics: paste the `steep` block below back into opencode.json's `lsp` object (after `clangd`). Root cause + investigation notes sent to agent 6e09. See .agents/knowledge/steep.md.",
+  "steep": {
+    "_comment": "Steep (RBS type checker) as an LSP for .rb/.rbs — surfaces type diagnostics (NoMethod/ArgumentTypeMismatch/RBS errors) on edits, per the Steepfile (which uses D::Ruby.lenient so un-annotated game scripts + mruby's loose numerics don't flood). Coexists with ruby-lsp: ruby-lsp gives hover/completion/format (its diagnostics are off); steep gives the type checking ruby-lsp can't do. env mirrors ruby-lsp: the steep binary shebang is #!/usr/bin/ruby so GEM_HOME/GEM_PATH must point at the user gem dir to load steep + rbs 4.0.3; PATH includes the gem bin so the langserver's worker processes find `steep`. --steepfile=<abs> so it's robust to the spawn cwd (resolves sig/game paths from the Steepfile dir). First diagnostics take a few seconds to warm up (it indexes sig/*.rbs); retry on a fresh spawn. B6 parser reads command/extensions/env/initialization.",
+    "command": ["/home/tradam/.local/share/gem/ruby/3.4.0/bin/steep", "langserver", "--steepfile=/home/tradam/projects/raylib-jamstack/Steepfile"],
+    "extensions": [".rb", ".rbs"],
+    "env": {
+      "PATH": "/home/tradam/.local/bin:/home/tradam/.local/share/gem/ruby/3.4.0/bin:/home/tradam/.local/share/mise/shims:/home/tradam/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/bin",
+      "GEM_HOME": "/home/tradam/.local/share/gem/ruby/3.4.0",
+      "GEM_PATH": "/home/tradam/.local/share/gem/ruby/3.4.0"
+    }
+  }
+}

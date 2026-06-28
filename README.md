@@ -1,133 +1,163 @@
-# Study Player
+# raylib-jamstack
 
-A keyboard-driven MP3 player built with [raylib](https://github.com/raysan5/raylib), cross-compiled for Windows from Linux using MinGW.
+A stack for building **raylib gamejam games in Ruby**. Three core parts:
 
-<img width="1923" height="1125" alt="image" src="https://github.com/user-attachments/assets/a2e2363e-cc0a-4936-8b04-0f32886ff9d8" />
+| Part | Role | In Ruby |
+|------|------|---------|
+| **[raylib](https://github.com/raysan5/raylib)** | graphics / audio / input | `Rl::` |
+| **[mruby](https://github.com/mruby/mruby)** | the embedded Ruby that runs your game | — |
+| **[RmlUi](https://github.com/mikke89/RmlUi)** | HTML/CSS UI with data binding | `Rml::` |
 
-## Architecture
+Write your game in Ruby; it compiles to a native desktop binary **and** to
+WebAssembly for the browser, from one codebase.
 
-The project is built from composable modules, each a `.h` contract + `.c`
-implementation pair. This separation enables parallel agent development —
-modules communicate only through header-file contracts.
+```ruby
+Rl.init_window(800, 450, "my game")
+Rl.target_fps = 60
 
-```
-src/types.h          shared types: PlayerState, SilenceRegion, UILayout, constants
-src/player.{h,c}     audio playback: load, play, pause, seek, update, format_time
-src/study.{h,c}      study mode: silence detection, portion navigation, auto-pause
-src/ui.{h,c}        rendering + input: fonts, colors, drawing, keyboard/mouse
-src/config.{h,c}    UI layout persistence (study-player.cfg)
-src/layout_editor.{h,c}  layout editor tab (drag-to-reposition)
-src/main.c           composition root: main loop, tab switching, platform glue
-```
+ui = Rml::Context.new("main")
+model = ui.data_model("hud") do |m|
+  m.bind(:score) { $score }      # Ruby state -> {{score}} in the RML
+  m.event(:reset) { $score = 0 } # <button data-event-click="reset()">
+end
+ui.load_document("game/ui/hud.rml").show
 
-See `GLOSSARY.md` for the canonical vocabulary and `ORCHESTRATOR.md` for the
-multi-agent development workflow.
-
-### Dependencies
-
-Clone the following repositories into the `deps/` directory:
-
-```bash
-mkdir -p deps
-git clone https://github.com/raysan5/raylib.git deps/raylib
-git clone https://github.com/raysan5/raygui.git deps/raygui
-```
-
-You also need the MinGW cross-compiler and `xxd` installed:
-
-```bash
-# Arch
-sudo pacman -S mingw-w64-gcc vim  # xxd is part of vim
+Rl.while_window_open do           # desktop: while loop / web: emscripten main loop
+  ui.process_input
+  $score += 1
+  model.dirty(:score)
+  Rl.draw(clear_color: Rl::BLACK) do
+    Rl.draw_text(text: "score #{$score}", x: 10, y: 10, font_size: 20, color: Rl::WHITE)
+    ui.update
+    ui.render                     # UI composited over the game
+  end
+end
 ```
 
-### Custom Fonts
+## Prerequisites
 
-Place a `.otf` or `.ttf` font file in the `resources/` directory. The build script automatically finds the first font file and embeds it into the executable — no external font files are needed at runtime.
+Install these first (the bootstrap script fetches dependencies, **not** the toolchain):
 
-```bash
-mkdir -p resources
-cp /path/to/your/font.otf resources/
+- **Zig** (tested with 0.16.0) — drives the desktop build / link
+- **Ruby + `rake`** (host Ruby, builds mruby) — `gem install rake`
+- **A C compiler** (gcc or clang) — compiles mruby + raylib
+- **OpenGL / windowing dev libs** — for the desktop GL context (on Linux: X11 and/or Wayland)
+- **Emscripten SDK** — only for the web build; point `build_web.sh` at it via `EMSDK_ENV=~/emsdk/emsdk_env.sh`
+
+> **WSL / Linux note:** strip `/mnt/c` from `PATH` first (the Windows toolchain on
+> the PATH breaks native builds). See `BUILDING.md` for OS-specific detail
+> (Wayland, package names) and `.agents/rules/wsl-toolchain.md`.
+
+## Quick start
+
+`vendor/` is git-ignored, so a fresh `git clone` ships none of the native deps.
+`bin/bootstrap.sh` fetches them — it's the one-command setup (clones the 6
+pinned vendors into `vendor/` + applies every `patches/*.patch`; idempotent,
+safe to re-run). Then build — see **[BUILDING.md](BUILDING.md)** for full steps:
+
+```sh
+./bin/bootstrap.sh        # clones the 6 git-ignored vendored deps + applies patches/*
+
+# desktop (raylib + RmlUi + flecs + Jolt + mruby all built and linked by zig)
+zig build run                              # runs game/main.rb (RmlUi data-binding HUD)
+./zig-out/bin/game game/physics_demo.rb    # 3D Jolt physics demo (SPACE: shoot, R: reset)
+
+# web (needs the Emscripten SDK)
+EMSDK_ENV=~/emsdk/emsdk_env.sh ./build_web.sh
+cd build/web && python3 -m http.server 8000   # open http://localhost:8000/game.html
 ```
 
-If no font file is present, the app falls back to the built-in raylib default font.
+## What works
 
-### Building
+- **Comprehensive raylib + raymath bindings** — ~650 functions, all 34 structs
+  (as classes with field accessors + constructors), all enums and color/numeric
+  defines as constants. Generated from raylib's official `raylib_api.json` (and
+  `raymath.h`) by `mrbgems/raylib/tools/gen_raylib.rb` (`Is*` -> Ruby predicates,
+  structs marshal by value, single struct pointers pass inout). Vector/matrix math
+  included: `Rl.vector2_add`, `Rl.vector2_normalize`, `Rl.matrix_identity`, etc.
+- **Comprehensive RmlUi bindings** — `Rml::Context`, `Rml::Document`,
+  `Rml::Element` (attributes, classes, style properties, queries
+  `query_selector`/`get_element_by_id`/`elements_by_tag`, traversal, geometry,
+  `el.on(:click) { |event| ... }`), `Rml::Event`, and the MVC **data model**
+  (`m.bind`/`m.value`/`m.event`, `model.dirty`). Rendered over the game via an
+  `rlgl` backend.
+- **Flecs (ECS) bindings** — `Flecs::World`, runtime components from a meta
+  descriptor (`world.struct("Position", "{float x; float y;}")`) (de)serialized
+  to/from Ruby Hashes, entities/tags (`set`/`get`/`add`/`remove`/`has?`),
+  cached `world.query(...)`, and `world.system(name, with:) { |id, *comps| ... }`
+  driven by `world.progress`. Modeled on flecs' Lua binding; meta works on web too.
+- **Jolt 3D physics bindings** — `Jolt::World`, reusable `Jolt::Shape`
+  (box/sphere/capsule/cylinder), `Jolt::Body` (motion types, forces/impulses,
+  velocities, `set_transform`), and `world.raycast`. Positions/rotations are
+  `Rl::Vector3`/`Vector4` for direct use in raylib draw calls. Hand-written over
+  the joltc C API; single-threaded `step` works identically on desktop and web
+  (~1.1 MB added to the wasm).
+- **Web**: the same game cross-compiles to wasm; the `while_window_open` loop
+  becomes `emscripten_set_main_loop` transparently.
+- **One build command per target**: `zig build` orchestrates the desktop build
+  (raylib `make`, RmlUi `cmake`, mruby `rake`, then link); `build_web.sh` does the
+  emscripten equivalent.
 
-```bash
-# Linux native
-make -j$(nproc)
+## How the Ruby API looks
 
-# Windows cross-compile
-make windows -j$(nproc)
-```
+The bindings are idiomatic Ruby, not a 1:1 C mirror: `snake_case`, `?` predicates,
+`=` setters, block-scoped `Begin/End` pairs, keyword args for many-arg calls, and
+C structs as classes. Full contract in **[docs/API_SPEC.md](docs/API_SPEC.md)**
+(raylib), **[docs/API_SPEC_RMLUI.md](docs/API_SPEC_RMLUI.md)** (RmlUi),
+**[docs/API_SPEC_FLECS.md](docs/API_SPEC_FLECS.md)** (flecs / ECS), and
+**[docs/API_SPEC_JOLT.md](docs/API_SPEC_JOLT.md)** (Jolt / 3D physics).
 
-The output binary is `build/study-player` (Linux) or `build/study-player.exe` (Windows).
+For a complete listing of every bound call (raylib + raymath + RmlUi + flecs + Jolt)
+with typed signatures, all structs / enums / constants, and an explicit list of
+*unbound* functions, see **[docs/AI_REFERENCE.md](docs/AI_REFERENCE.md)** — one
+self-contained file (handy for feeding to an AI agent), generated from the same
+JSON/headers by `mrbgems/raylib/tools/gen_ai_reference.rb`.
 
-Alternatively, use the convenience scripts:
-
-```bash
-bin/build      # desktop build (Linux native + Windows cross-compile)
-bin/clean      # remove build artifacts
-bin/build-web  # WASM/web build via emscripten
-bin/serve      # serve web build on port 8080
-```
-
-### Usage
-
-Run the binary on Linux (or the `.exe` on Windows / under Wine). Drag an `.mp3` file onto the window to load it.
-
-| Key | Action |
-|---|---|
-| **Drag & drop** | Load and play an `.mp3` file |
-| **C** | Pause (does nothing if already paused) |
-| **N** | Play from start of current section (does nothing if already playing) |
-| **Space (hold)** | Resume/override study mode auto-pause (never pauses) |
-| **Up Arrow** | Play |
-| **Down Arrow** | Pause (rewinds 1s) |
-| **Left Arrow** | Seek backward 5 seconds |
-| **Right Arrow** | Seek forward 5 seconds |
-| **V** | Jump to start of current section (if in padding/silence, jumps to previous) |
-| **B** | Jump to start of next section |
-| **0–9** | Jump to 0%–90% of the track |
-| **Click progress bar** | Seek to position |
-
-### Study Mode
-
-Study Mode is designed for audiobooks and language learning. It is **enabled by default** and can be toggled with the checkbox in the bottom-right corner.
-
-When the audio is loaded, the app analyzes it to detect silence gaps between spoken sections. A section counter (e.g. "5/70") shows which speaking section you're in.
-
-**How it works:**
-
-The app detects silence gaps in the audio and adds a 0.25-second padding zone between silence and speech. Each speaking section is separated by these gaps.
-
-- **Auto-pause at silence entry** — When playback crosses from the padding zone into a silence gap, it automatically pauses and jumps the playhead forward to the start of the next speaking section (just inside the padding).
-- **Auto-pause at silence exit** — If audio plays through a silence gap (e.g. via Space override), it auto-pauses when exiting the silence into the next padding/speech zone.
-- **C** — Pauses playback at the current position. Does nothing if already paused.
-- **N** — Seeks to the start of the current speaking section and resumes playback. Does nothing if already playing.
-- **Space (hold)** — Overrides study mode auto-pauses while held. If paused, pressing Space resumes playback. Space never pauses — it only resumes/overrides.
-- **V** — Jumps to the start of the current speaking section. If the playhead is in the padding zone or in silence, jumps to the previous section instead.
-- **B** — Jumps to the start of the next speaking section.
-
-Section navigation buttons (◀ ▶) are also available next to the section counter.
-
-**Visual indicators:**
-
-- The "PLAYING"/"PAUSED" text and play button turn a darker red during silence sections.
-- The section counter below the buttons shows your current position (e.g. "12/70").
-
-When Study Mode is **off**, C pauses and N resumes without any section-seeking behavior. Space still only resumes (never pauses).
-
-### Project Structure
+## Layout
 
 ```
-src/               modular C source (one .h/.c pair per module)
-deps/raylib/       raylib (cloned separately)
-deps/raygui/       raygui (cloned separately)
-build/             Build output (gitignored)
-resources/         Font files (gitignored)
-bin/               Build and utility scripts
-AGENTS.md          Subagent constitution (C99 rules, module boundaries)
-ORCHESTRATOR.md    Multi-agent orchestration workflow
-GLOSSARY.md        Canonical vocabulary
+AGENTS.md            AI-agent constitution (read first; CLAUDE.md is a symlink)
+.agents/             AI harness: rules/ (safety reflexes) + knowledge/ (tribal docs)
+build.zig            desktop build (orchestrates everything)
+build_web.sh         web build (emscripten)
+build_config.rb      mruby build (+ web CrossBuild) with our mrbgems
+src/main.c           host: boots mruby, runs game/main.rb
+mrbgems/raylib/      Rl::    bindings (C primitives + mrblib Ruby sugar)
+mrbgems/rmlui/       Rml::   bindings (rlgl render backend + data binding, C++)
+mrbgems/flecs/       Flecs:: bindings (ECS; runtime meta components, C)
+mrbgems/jolt/        Jolt::  bindings (3D physics over the joltc C API)
+game/                main.rb, ui/*.rml + *.rcss, assets
+web/shell.html       browser canvas shell
+docs/                API specs + build-system design
+vendor/              raylib, mruby, RmlUi, flecs, joltc + JoltPhysics (fetched separately)
 ```
+
+This repo carries an **AI harness** (see [AGENTS.md](AGENTS.md)): a short
+always-loaded constitution plus `.agents/rules/` (tiny safety reflexes) and
+`.agents/knowledge/` (per-area "tribal knowledge" — the toolchain ABI quirks,
+WSL/Wayland, premultiplied-alpha rendering, flecs wasm stack, etc. that you can't
+infer from the code). Read the relevant files before changing the build or
+bindings, and add new gotchas as you find them.
+
+## Status / not yet done
+
+The raylib, raymath, and RmlUi surfaces are comprehensively bound. The ~72 skipped
+functions are the ones needing callbacks, raw data buffers, string/array returns,
+or varargs (listed in the generated `raylib_gen.c` header); rlgl is not yet
+generated. RmlUi input routing forwards mouse (keyboard/text TODO). These are the
+natural next steps.
+
+Shader uniforms are hand-bound on top of the generated surface:
+
+```ruby
+sh  = Rl.load_shader_from_memory(nil, frag_src)   # nil vs -> default vertex shader
+loc = Rl.get_shader_location(sh, "tint")
+Rl.set_shader_value(sh, loc, [1.0, 0.5, 0.2, 1.0], Rl::SHADER_UNIFORM_VEC4)
+Rl.set_shader_value(sh, Rl.get_shader_location(sh, "gain"), 2.0, Rl::SHADER_UNIFORM_FLOAT)
+# arrays of vectors for the *V form:
+Rl.set_shader_value_v(sh, loc2, [[1,0,0],[0,1,0]], Rl::SHADER_UNIFORM_VEC3, 2)
+```
+
+`set_shader_value` accepts a Numeric or Array (flat or nested) and packs it into
+the right C buffer based on the `SHADER_UNIFORM_*` type, raising `ArgumentError`
+on component-count mismatch.

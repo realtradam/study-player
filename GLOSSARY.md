@@ -1,54 +1,97 @@
-# GLOSSARY.md — canonical vocabulary
+# GLOSSARY — raylib-jamstack
 
-> **One term per concept. Never coin a synonym silently.** If you think a new
-> term is needed, propose it and wait for approval before using it in code.
+One canonical vocabulary for this repo (harness principle P4). Every doc, skill,
+rule, comment, and commit message should use the **Term** column and avoid the
+**Aliases to avoid** column — synonym drift is what makes an ECS + multi-binding
+codebase confusing to humans and agents alike.
 
-## Core concepts
+Terms marked **(planned)** are the agreed vocabulary for Part B of `roadmap.md`
+(the agentic runtime); use them when writing that code so the names land
+consistent on the first try. Everything else describes code that exists today.
 
-| Term | Definition | Avoid calling it... |
-|------|-----------|-------------------|
-| **PlayerState** | The single struct holding all mutable runtime state: loaded audio, playback status, silence regions, study mode flag. Defined in `types.h`. | "app state", "context", "global state" |
-| **UIState** | The struct holding UI-only state: fonts, colors, and interaction flags (smartPlayHeld). Defined in `ui.h`. | "ui context", "render state" |
-| **UILayout** | Pixel positions for every on-screen element, persisted to `study-player.cfg`. Defined in `types.h`, loaded/saved by the config module. | "layout config", "positions" |
-| **speaking portion** | A contiguous segment of audio between two silence regions (i.e. the "meaningful content"). 0-based index. | "section", "segment", "clip", "part" |
-| **silence region** | A detected gap in audio where amplitude stays below threshold for ≥ minDuration. Normalized 0–1. | "pause", "gap", "quiet zone" |
-| **study mode** | Boolean toggle (`PlayerState.studyMode`). When ON, auto-pauses at silence boundaries. | "auto-pause mode", "learning mode" |
-| **seek** | Jump playback position to a specific time (seconds). `player_seek(PlayerState*, float)`. | "scrub", "jump", "skip" |
-| **auto-pause** | The study-mode mechanism that pauses playback when entering a silence region. Implemented by `study_auto_pause_check`. | "auto-stop", "silence break" |
-| **padding zone** | The 0.25s "breathing room" added around speaking portions (silence shrunk by 0.25s on each side) to avoid auto-pausing during natural speech pauses. | "grace period", "buffer zone" |
-| **portion navigation** | Jumping between speaking portions via keys (V/B) or section buttons. | "chapter skip", "section nav" |
-| **smart play** | A hold-to-override button that resumes playback and suppresses auto-pause while held. State tracked in `UIState.smartPlayHeld`. | "hold play", "override button" |
-| **embedded font** | A `.otf`/`.ttf` font file converted to `build/font_data.h` via `xxd`, compiled into the binary. Guarded by `#if FONT_EMBEDDED`. Included in exactly one `.c` file (`ui.c`). | "baked font", "built-in font" |
+## ECS (Flecs)
 
-## Module names
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **World** | `Flecs::World`; owns all entities/components/systems. One per game (more allowed). | the ECS, registry, scene, container |
+| **Entity** | An integer id, wrapped in `Flecs::Entity`. Systems/queries yield the **raw Integer id** for speed; `world.entity_for(id)` wraps it. | object, actor, node, "game object" (that's a higher-level gameplay concept, not the ECS id) |
+| **Component** | A real C struct declared at runtime via the meta addon; values (de)serialized to/from a Ruby **Hash**. There is no per-component Ruby class. | struct (ambiguous — see *meta descriptor* and `world.struct`), class, model, data class |
+| **tag** | A dataless entity used as an id for `add`/`remove`/`has?`. | flag, marker, label, boolean component |
+| **meta descriptor** | The C-struct string passed to `world.struct`, e.g. `"{float x; float y;}"`. | schema, type string, layout string |
+| **System** | A Ruby block registered with `world.system(name, with:, phase:)`, run once per matched entity every `progress`. Lowercase "system" means the same thing. | callback (reserve for the C function), update fn, behaviour, script |
+| **phase** | When a system runs within one `progress`: `Flecs::ON_LOAD` → `PRE_UPDATE` → `ON_UPDATE` (default) → `ON_START`. | stage (that's flecs *staging*/deferred — different), tick, step, pipeline slot |
+| **query** | `world.query(*components)` — cached, `Enumerable`, `|id, *comps|` with writeback. | filter (a flecs filter is the *uncached* variant), search, view |
+| **progress** | `world.progress(dt)` — advance one step, run all systems on the calling thread. | tick, step, update (fine colloquially, but the method is `progress`) |
+| **writeback** | Mutating a yielded component Hash writes back into component memory after the block returns. | sync, flush, commit |
+| **pair / relationship** | flecs relationship `(Relation, Target)`. **Not exposed yet.** | edge, link, parent ref |
 
-| Module | Files | Owns |
-|--------|-------|------|
-| **types** | `src/types.h` | `PlayerState`, `SilenceRegion`, `UILayout`, all constants (`SCREEN_W`, `SCREEN_H`, `MAX_*`). Pure header — no `.c`. |
-| **player** | `src/player.h`, `src/player.c` | Audio loading, playback control, seek, music-stream update, time formatting |
-| **study** | `src/study.h`, `src/study.c` | Silence detection, speaking-portion navigation, auto-pause logic |
-| **ui** | `src/ui.h`, `src/ui.c` | Font/color initialization, all rendering, all input handling (player tab), `UIState` |
-| **config** | `src/config.h`, `src/config.c` | `UILayout` persistence (load/save to `study-player.cfg`) |
-| **layout_editor** | `src/layout_editor.h`, `src/layout_editor.c` | Layout editor tab (drag-to-reposition UI elements), raygui implementation |
-| **main** | `src/main.c` | Entry point, main loop, tab switching, drag-drop/web file loading, platform glue |
+## Bindings & build
 
-## Build terms
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **binding** | The mruby-exposed API for a native lib: `Rl::`, `Rml::`, `Flecs::`, `Jolt::`. | wrapper, shim, API (too vague) |
+| **mrbgem** | A packaging unit under `mrbgems/<name>/` (C/C++ in `src/`, Ruby sugar in `mrblib/`). The four are raylib, rmlui, flecs, jolt. | gem (ambiguous with RubyGems), plugin, module, library |
+| **generator** | `mrbgems/raylib/tools/gen_raylib.rb`; emits `raylib_gen.c` from `raylib_api.json`. **Edit the generator, never `raylib_gen.c`.** | codegen, the script, the parser (`rlparser` is a *different* tool) |
+| **amalgamation** | flecs' single-file source `vendor/flecs/distr/flecs.{c,h}` compiled to `libflecs.a`. | the flecs source, the bundle |
+| **meta addon** | flecs' reflection feature enabling runtime struct declaration (powers Components). | reflection lib, RTTI |
+| **gembox** | mruby's `conf.gembox 'default'` set of stock gems (gives us `mruby-eval`/`-socket`/`-io`). | gem set, bundle |
+| **presym** | mruby preallocated symbols; we `disable_presym` so new binding method names don't need a regen. | symbol table |
+| **libmruby.a** | The archive holding mruby **plus** all four mrbgems' objects; must link **before** the native libs. | the mruby lib (it also contains our bindings) |
+| **platform seam** / **the seam** | `Rl.while_window_open` — the ONE place desktop (`until window_should_close?`) and web (`emscripten_set_main_loop`) differ. | main-loop wrapper, game loop (that's the *body* you pass it) |
+| **joltc** | Amer Koleci's C wrapper around JoltPhysics that `Jolt::` binds (not JoltPhysics' C++ API directly). | jolt C API, the C++ API |
+| **GCC LTO** | GIMPLE-bytecode objects that zig's **lld cannot link** (turn IPO off). Distinct from **LLVM/emcc LTO**, which is fine on web. | LTO (always say which — GCC vs LLVM) |
 
-| Term | Meaning |
-|------|---------|
-| **desktop build** | Host-native build via `gcc`, produces `build/study-player` (Linux) |
-| **Windows build** | Cross-compile via `x86_64-w64-mingw32-gcc`, produces `build/study-player.exe` |
-| **web build** | WASM via `emcc` + Emscripten, produces `build-web/index.{html,js,wasm}` |
-| **font header** | `build/font_data.h` generated by `xxd -i` from a font in `resources/` |
+## Code boundaries (game vs engine)
 
-## Platform defines
+The split is by **location + lifecycle**, NOT by language — there is engine Ruby
+too. This boundary governs who-edits-what and how a change takes effect.
 
-| Define | When set |
-|--------|----------|
-| `PLATFORM_DESKTOP` | Building for desktop — both Linux native and Windows cross-compile. Set in Makefile. |
-| `PLATFORM_LINUX` | Defined by `-DPLATFORM_LINUX` when building for Linux. |
-| `PLATFORM_WEB` | Building for web (Emscripten). Set in web build script. |
-| `_GLFW_X11` | GLFW X11 backend (Linux). Set in Makefile for Linux builds. |
-| `_GLFW_WIN32` | GLFW Windows backend. Set in Makefile for Windows cross-compile. |
-| `GRAPHICS_API_OPENGL_ES2` | WebGL 2 backend. Set in web build script. |
-| `FONT_EMBEDDED` | Defined in `font_data.h` by `xxd`. Guards `#if FONT_EMBEDDED` blocks. |
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **game code** | Everything under `game/**` — Ruby scripts **and** `*.rml`/`*.rcss`/assets. Loaded at runtime; **hot-reloadable** (or at worst a **reload**). Where gameplay work lives. | "the Ruby" (mrblib is Ruby too), scripts, content |
+| **engine code** | The bindings (`mrbgems/**` — C/C++ **and** `mrblib/*.rb`), `src/`, the build (`build.zig`, `build_config.rb`, `build_web.sh`), `vendor/**`. Compiled into the binary; a change needs a **rebuild**. | "the C code" (it includes mrblib Ruby), the bindings (that's only a subset) |
+| **mrblib** | The Ruby **sugar inside a mrbgem** (`mrbgems/*/mrblib/*.rb`). It is **engine code** — compiled into `libmruby.a`, so changing it needs a **rebuild**; it does **not** hot-reload. | game code, runtime Ruby |
+
+## Targets
+
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **desktop** | The Zig-linked native build (`zig build` → `zig-out/bin/game`). | native, host (host = mruby's build name, not the target) |
+| **web** / **wasm** | The emscripten build (`build_web.sh` → `build/web/game.{html,js,wasm,data}`). | emscripten target (fine), browser build |
+
+## Change application (how an edit takes effect)
+
+Three levels, lightest → heaviest. Use the lightest that actually applies — making
+the lighter levels reach more changes is the whole point of the runtime work.
+**Don't say "reboot"** — it's ambiguous; say **reload** (no compile) or **rebuild**
+(compile).
+
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **hot-reload** | Swap **game code** behaviour on the running game — replace a System's Ruby proc, or add systems/components **additively** — with entity/component state **preserved**. No restart, no compile. **(planned — Part B R3.)** | reload, rebuild, reboot, restart |
+| **reload** | Restart the **process** (desktop re-exec) / reload the **page** (web): game code re-runs from scratch, **runtime state is lost**, but **nothing is recompiled**. The fallback when a game change isn't hot-reloadable (e.g. a component **layout** change, or a non-idempotent file). | reboot, restart (be specific), hot-reload, rebuild |
+| **rebuild** | Recompile + relink the **engine** (`libmruby.a` + the native libs), then reload to pick it up. Required for any **engine code** change (C/C++, the generator, build flags, **mrblib** sugar). | reboot, recompile-only (it's compile+link+reload), hot-reload, reload |
+
+## Harness layers
+
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **rule** | A tiny always-read safety reflex in `.agents/rules/`. | guideline, convention doc |
+| **knowledge doc** | The **single** per-area tribal doc in `.agents/knowledge/` (one per area). Opens with an **"At a glance"** orientation header (key files + API/spec pointer + cross-refs), then the deep "why it broke" detail. Read when touching that area; it doubles as the Plan-Mode brief. | feature doc (retired — folded into here), guide, README, wiki page, `docs/API_SPEC*` (that's the full spec) |
+| **skill** | A codified, on-demand workflow under `.agents/skills/<name>/SKILL.md`. | macro, recipe, command (a *command* is a different tool concept) |
+| **subagent** | A scoped agent (model pin + tool allowlist + brief) used to constrain risky work. | bot, worker, role |
+| **the symlink trick** | `.claude → .agents` (and `CLAUDE.md → AGENTS.md`) so the harness is tool-agnostic with one source of truth. | mirror, copy |
+
+## Agentic runtime (planned — Part B of `roadmap.md`)
+
+| Term | Meaning | Aliases to avoid |
+|---|---|---|
+| **command queue** | The frame-polled queue; every agent/console/bridge command is enqueued off-frame and **drained on the main thread** before `world.progress` (P6). | task queue, event loop, message bus, job queue |
+| **eval-in** / **`jamstack_eval`** | The C surface that runs queued Ruby on the **persistent** `mrb_state` and returns `{ok,result,stdout,error,backtrace}` JSON. | REPL, exec, run-string |
+| **the bridge** | The dev-only eval channel (WS on web / TCP-or-WS on desktop) that the agent and console speak. | the server, the socket, the API |
+| **the relay** | The Bun/Node WS hub (`tools/agent-bridge/server.js`) routing eval between the runtime and clients, and maintaining the live mount. | proxy, broker, gateway |
+| **runtime** vs **client** | Over the bridge: the running game connects as the **runtime**; agents/CLI/console connect as **clients**. | host/peer, master/slave |
+| **the live mount** / **`.live/`** | The read-mostly observation surface: `status.json`, `console`, `state.json`, `.agent/cmd-*/result-*`, `bin/*`. | the state dir, the API dir, the output dir |
+| **NDJSON** | Newline-delimited JSON — one JSON object per line — the log/stream format (greppable, tailable). | JSON Lines (use NDJSON here), "log format" |
+| **ring buffer** | In-memory last-N log entries, queryable via eval (`Log.tail`, `Log.grep`). | log cache, history buffer |
+| **mutate vs observe** | P5: agents **mutate** behaviour by editing Ruby / hot-reloading (write path); they **observe** state via `.live/` + logs (read path). Keep the two paths distinct. | "read/write the game" (be specific which path) |

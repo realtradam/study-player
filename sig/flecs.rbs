@@ -1,0 +1,191 @@
+# Flecs (ECS) Ruby API signatures (hand-written from docs/API_SPEC_FLECS.md).
+# Mirrors mrbgems/flecs/mrblib/flecs.rb (public API), the low-level C primitives
+# in mrbgems/flecs/src/flecs_bindings.c (Flecs::World#_*), and the hot-reload
+# sugar in mrbgems/flecs/mrblib/hot.rb (Flecs::Hot).
+#
+# Components are real C structs declared at runtime via the meta addon and
+# (de)serialized to/from Ruby Hashes — there is no per-component Ruby class, so
+# component VALUES are typed Hash[Symbol, untyped] (dynamic by design). Everything
+# else (lifecycle, phases, system/query registration, REST, Hot) is static and
+# typed precisely.
+
+# A component/tag id: a Flecs::Component, a Flecs::Entity, or a raw Integer id
+# (anything responding to `to_i`, per API_SPEC_FLECS.md §3). Used wherever a
+# component/tag term is accepted (set/get/add/remove/has?, query, system `with:`).
+type term = Flecs::Component | Flecs::Entity | Integer
+
+module Flecs
+  # Pipeline phase ids (Integer constants). Systems run in this order each
+  # `progress`: ON_LOAD -> PRE_UPDATE -> ON_UPDATE (default) -> ON_START.
+  ON_LOAD: Integer
+  PRE_UPDATE: Integer
+  ON_UPDATE: Integer
+  ON_START: Integer
+end
+
+# Owns all entities/components/systems. One per game (more allowed). Wraps an
+# `ecs_world_t` (freed automatically by GC). Single-threaded `progress` only.
+class Flecs::World
+  def initialize: () -> void
+
+  # --- entities ---
+  # Create an entity (optionally named). Anonymous if `name` is omitted.
+  def entity: (?String name) -> Flecs::Entity
+  # Wrap a raw entity id (e.g. one yielded to a system/query block).
+  def entity_for: (Integer id) -> Flecs::Entity
+  # Look up an entity/component by name -> nil if not found.
+  def lookup: (String name) -> Flecs::Entity?
+
+  # --- components / tags ---
+  # Declare a component as a C struct from a meta descriptor string, e.g.
+  #   world.struct("Position", "{float x; float y;}")
+  # Returns a Flecs::Component (usable wherever an id is expected).
+  def struct: (String name, String descriptor) -> Flecs::Component
+  alias component struct
+  # A tag is a dataless entity used as an id (add/remove/has?).
+  def tag: (String name) -> Flecs::Component
+
+  # --- queries ---
+  # Cached query over the given component/tag ids. Reuse across frames.
+  def query: (*term components) -> Flecs::Query
+
+  # --- systems ---
+  # Register a system that runs each `progress` during `phase`. Block receives
+  # |entity_id, *component_hashes| per matched entity; mutations to the component
+  # hashes are written back into component memory. Tag terms yield `nil` for their
+  # slot. Returns the system entity id (Integer).
+  def system: (
+    String name,
+    with: Array[term],
+    ?phase: Integer
+  ) { (Integer entity_id, *(Hash[Symbol, untyped] | nil) component_hashes) -> void } -> Integer
+
+  # --- simulation ---
+  # Advance the world by `dt` seconds, running all systems. Returns false when
+  # the world wants to quit.
+  def progress: (?Float dt) -> bool
+
+  # --- observability (R5; dev-only) ---
+  # Start the flecs REST API so the hosted Flecs Explorer can inspect the live
+  # world. Served during progress. Returns self.
+  def enable_rest: (?Integer port) -> Flecs::World
+  # Per-system timing + world monitor stats (shown in the Explorer). Returns self.
+  def enable_stats: () -> Flecs::World
+  # Query the flecs REST API in-process (no socket — works on desktop AND web).
+  # Requires enable_rest first. Returns raw JSON, or nil for an empty body.
+  #   world.rest_request("GET", "/world")
+  #   world.rest_request("GET", "/query?expr=Position&values=true")
+  def rest_request: (String method, String path, ?String body) -> String?
+
+  # --- low-level C primitives (flecs_bindings.c) ---
+  def _entity: (?String? name) -> Integer
+  def _lookup: (String name) -> Integer?
+  def _name: (Integer id) -> String?
+  def _set_name: (Integer id, String name) -> void
+  def _delete: (Integer id) -> void
+  def _alive?: (Integer id) -> bool
+  def _add: (Integer id, Integer comp) -> void
+  def _remove: (Integer id, Integer comp) -> void
+  def _has?: (Integer id, Integer comp) -> bool
+  # value is a Hash matching the component's meta descriptor.
+  def _set: (Integer id, Integer comp, Hash[Symbol, untyped] value) -> Flecs::World
+  def _get: (Integer id, Integer comp) -> Hash[Symbol, untyped]?
+  def _struct: (String name, String descriptor) -> Integer
+  def _query: (Array[Integer] ids) -> Flecs::Query
+  def _system: (
+    String name,
+    Integer phase,
+    Array[Integer] ids
+  ) { (Integer entity_id, *(Hash[Symbol, untyped] | nil) component_hashes) -> void } -> Integer
+  def _progress: (?Float dt) -> bool
+  def _enable_rest: (?Integer port) -> Flecs::World
+  def _rest_request: (String method, String path, ?String body) -> String?
+  def _enable_stats: () -> Flecs::World
+end
+
+# A lightweight wrapper around an entity id bound to its world. Created by
+# World#entity / #entity_for (not constructed directly by game code).
+class Flecs::Entity
+  attr_reader id: Integer
+  attr_reader world: Flecs::World
+
+  def initialize: (Flecs::World world, Integer id) -> void
+  def to_i: () -> Integer
+  alias to_int to_i
+
+  def name: () -> String?
+  def name=: (String name) -> void
+  def delete: () -> void
+  def alive?: () -> bool
+
+  # Set a component's fields: kwargs `set(pos, x: 1, y: 2)` or a Hash
+  # `set(pos, {x: 1, y: 2})`. Chainable; returns self.
+  def set: (term comp, ?Hash[Symbol, untyped]? fields, **untyped kw) -> Flecs::Entity
+  # Read a component back as a Hash, or nil if the entity has no such component.
+  def get: (term comp) -> Hash[Symbol, untyped]?
+  # add/remove a tag (or a component with its default value). Chainable.
+  def add: (term comp) -> Flecs::Entity
+  def remove: (term comp) -> Flecs::Entity
+  def has?: (term comp) -> bool
+
+  def ==: (untyped other) -> bool
+  def inspect: () -> String
+end
+
+# A wrapper around a component/tag id (also just an entity under the hood).
+# Created by World#struct / #tag; usable wherever an id is expected.
+class Flecs::Component
+  attr_reader id: Integer
+  attr_reader world: Flecs::World
+
+  def initialize: (Flecs::World world, Integer id) -> void
+  def to_i: () -> Integer
+  alias to_int to_i
+  def name: () -> String?
+  def inspect: () -> String
+end
+
+# A cached query over a set of components/tags. NOTE: intentionally does NOT
+# `include Enumerable` in the RBS: `each` yields (entity_id, *component_hashes),
+# a multi-arg yield that can't satisfy Enumerable's single-Elem contract, so the
+# mixin fails Steep's module-self-type check. The Ruby class still mixes in
+# Enumerable at runtime; only `.each` is documented here (game code uses it
+# directly). Add explicit derived-method signatures if you start using them.
+class Flecs::Query
+  # Yields entity_id + component hashes per matched entity; mutations to the
+  # hashes are written back. Tag terms yield `nil` for their slot. Returns self.
+  def each: () { (Integer entity_id, *(Hash[Symbol, untyped] | nil) component_hashes) -> void } -> Flecs::Query
+  # low-level C primitive (flecs_bindings.c)
+  def _each: () { (Integer entity_id, *(Hash[Symbol, untyped] | nil) component_hashes) -> void } -> Flecs::Query
+end
+
+# Hot-reloadable systems (R3). Register a system ONCE with a stable dispatcher that
+# looks up the current proc by name; on reload just replace the proc — same system
+# id, same matched tables, same entity/component data, new logic. Set
+# `Flecs::Hot.world` before defining systems.
+module Flecs::Hot
+  # The world systems are registered against (nil until set).
+  def self.world: () -> Flecs::World?
+  def self.world=: (Flecs::World? v) -> Flecs::World?
+
+  # Register (first call) or hot-swap (reload) a system. Idempotent: re-running a
+  # systems file just replaces procs. `with` terms may be Component/Entity/Integer
+  # ids OR String names (looked up live, so reload need not re-create components).
+  # Returns the system entity id (Integer).
+  def self.define_system: (
+    String name,
+    with: Array[term | String],
+    ?phase: Integer
+  ) { (Integer entity_id, *(Hash[Symbol, untyped] | nil) component_hashes) -> void } -> Integer
+
+  # Re-eval a chunk of systems Ruby (from the bridge). Never raises.
+  def self.reload_string: (String code) -> bool
+  # Re-eval a systems file (the reloadable unit). Never raises.
+  def self.reload_file: (String path) -> bool
+  # The registered system id for `name`, or nil if none.
+  def self.id_for: (String name) -> Integer?
+  # Names of all registered systems.
+  def self.systems: () -> Array[String]
+  # Forget all registrations (does not delete the systems from the world).
+  def self.reset!: () -> void
+end

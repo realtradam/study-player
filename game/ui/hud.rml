@@ -1,0 +1,17 @@
+<rml>
+<head>
+    <link type="text/rcss" href="hud.rcss"/>
+</head>
+<body>
+    <div id="hud-left">
+        <div id="hud-controls" class="line"></div>
+        <div id="hud-ride" class="line"></div>
+        <div id="hud-sensor" class="line"></div>
+        <div id="hud-ray" class="line"></div>
+        <div id="hud-counts" class="line"></div>
+    </div>
+    <div id="hud-right">
+        <div id="hud-fps"></div>
+    </div>
+</body>
+</rml>

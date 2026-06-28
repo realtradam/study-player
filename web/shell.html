@@ -1,110 +1,289 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en-us">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Study Player</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0d0d1a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    color: #eaeaea;
-  }
-  #controls {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 12px;
-    align-items: center;
-  }
-  #controls button, #controls label {
-    background: #1a1a2e;
-    color: #eaeaea;
-    border: 2px solid #e94560;
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-size: 15px;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  #controls button:hover, #controls label:hover {
-    background: #e94560;
-  }
-  #controls input[type="file"] {
-    display: none;
-  }
-  #canvas-container {
-    position: relative;
-    display: inline-block;
-    border: 2px solid #333;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  canvas.emscripten {
-    display: block;
-  }
-  #status {
-    margin-top: 10px;
-    font-size: 13px;
-    color: #8c8ca0;
-  }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>raylib-jamstack</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #11111b; overflow: hidden; }
+    body { font-family: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+
+    /* Layout: landscape (wide) -> game left, REPL right;
+       portrait (tall, e.g. phone) -> game top, REPL bottom.
+       The game canvas is always a square. Switching is driven by the
+       `orientation` media feature (portrait = height >= width). */
+    #layout { display: flex; flex-direction: row; width: 100vw; height: 100vh; }
+
+    /* Game canvas: square. Landscape -> height-capped (fills the left pane). */
+    #game-pane {
+      flex: 0 0 auto; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      background: #000;
+    }
+    canvas {
+      display: block; border: 0; background: #000;
+      height: 100vh; aspect-ratio: 1 / 1; max-width: 70vw;
+      touch-action: none;
+    }
+
+    /* HTML Ruby REPL: fills the remaining space. */
+    #repl-pane {
+      flex: 1 1 0; min-width: 0; height: 100vh;
+      display: flex; flex-direction: column;
+      background: #181825; color: #cdd6f4;
+      border-left: 1px solid #313244;
+    }
+
+    /* Portrait (tall viewport, e.g. phone): stack vertically.
+       Game on top (square, width-capped), REPL fills the height below. */
+    @media (orientation: portrait) {
+      #layout { flex-direction: column; }
+      #game-pane { width: 100vw; height: auto; }
+      canvas { width: 100vw; height: auto; max-width: none; max-height: 85vh; }
+      #repl-pane {
+        width: 100vw; height: auto; flex: 1 1 0; min-height: 0;
+        border-left: 0; border-top: 1px solid #313244;
+      }
+    }
+    #repl-head {
+      flex: 0 0 auto; padding: 6px 10px; font-size: 12px; color: #a6adc8;
+      background: #11111b; border-bottom: 1px solid #313244;
+      display: flex; justify-content: space-between; gap: 8px;
+    }
+    #repl-head .dot { color: #a6e3a1; }
+    #repl-head .dot.idle { color: #6c7086; }
+    #scrollback {
+      flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px;
+      font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+    }
+    #scrollback .line { padding: 1px 0; }
+    #scrollback .cmd    { color: #89b4fa; }
+    #scrollback .result { color: #a6e3a1; }
+    #scrollback .error  { color: #f38ba8; }
+    #scrollback .stdout { color: #cdd6f4; }
+    #scrollback .info   { color: #6c7086; }
+
+    #input-row { flex: 0 0 auto; display: flex; align-items: stretch; border-top: 1px solid #313244; background: #11111b; }
+    #prompt {
+      flex: 0 0 auto; padding: 8px 10px; color: #f9e2af; user-select: none;
+      cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
+      border-right: 1px solid #313244;
+    }
+    #prompt:active { color: #fab387; background: #1e1e2e; }
+    #input {
+      flex: 1 1 auto; min-width: 0; resize: none; border: 0; outline: 0;
+      background: transparent; color: #cdd6f4; padding: 8px 10px 8px 0;
+      font: inherit; font-size: 13px; line-height: 1.4;
+      height: 1.6em; max-height: 8em; overflow: auto;
+    }
+    #input::placeholder { color: #585b70; }
+
+    #status { color: #cdd6f4; font-family: sans-serif; position: fixed; top: 8px; left: 8px; }
+  </style>
 </head>
 <body>
-  <div id="controls">
-    <label for="file-input">📂 Load MP3</label>
-    <input type="file" id="file-input" accept=".mp3">
-    <button id="fullscreen-btn">⛶ Fullscreen</button>
+  <div id="layout">
+    <div id="game-pane">
+      <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </div>
+    <div id="repl-pane">
+      <div id="repl-head">
+        <span><span id="repl-dot" class="dot idle">●</span> ruby repl <span style="color:#585b70">(Enter: eval · Shift+Enter: newline · ↑/↓: hist)</span></span>
+        <span id="repl-target">—</span>
+      </div>
+      <div id="scrollback"></div>
+      <div id="input-row">
+        <span id="prompt" role="button" aria-label="Autocomplete (Tab)" title="Autocomplete (Tab)">&gt;</span>
+        <textarea id="input" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" disabled placeholder="warming up…"></textarea>
+      </div>
+    </div>
   </div>
-  <div id="canvas-container">
-    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
-  </div>
-  <div id="status"></div>
-
+  <div id="status">loading…</div>
   <script>
-    var Module = {
-      canvas: document.getElementById('canvas'),
-      onRuntimeInitialized: function() {
-        console.log('Emscripten runtime initialized');
-        document.getElementById('status').textContent = 'Ready \u2014 load an MP3 file';
+    var statusEl = document.getElementById('status');
+    var canvas   = document.getElementById('canvas');
+    var scrollback = document.getElementById('scrollback');
+    var input    = document.getElementById('input');
+    var replDot  = document.getElementById('repl-dot');
+    var replTarget = document.getElementById('repl-target');
+
+    var HISTORY_KEY = 'jamstack.repl.hist';
+    var hist = [];
+    var histIndex = 0;
+    try { hist = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) {}
+    histIndex = hist.length;
+    var draftOnHistory = '';
+
+    function appendLine(text, cls) {
+      var div = document.createElement('div');
+      div.className = 'line ' + (cls || 'stdout');
+      div.textContent = text;
+      scrollback.appendChild(div);
+      scrollback.scrollTop = scrollback.scrollHeight;
+    }
+    function appendInfo(t) { appendLine(t, 'info'); }
+
+    function ready() { return window.Module && typeof window.Module.jamstack === 'function'; }
+
+    function evalRuby(code) {
+      var raw;
+      try { raw = window.Module.jamstack(code); }
+      catch (e) { raw = JSON.stringify({ ok: false, error: 'jamstack threw: ' + String(e) }); }
+      var env;
+      try { env = JSON.parse(raw || '{}'); } catch (e) { env = { ok: false, error: 'bad json: ' + raw }; }
+      if (env.stdout) appendLine(env.stdout, 'stdout');
+      if (env.ok) {
+        var r = env.result;
+        if (r != null && r !== '' && r !== 'nil') appendLine('=> ' + r, 'result');
+      } else {
+        appendLine(env.error || '(no error message)', 'error');
+        if (env.backtrace && env.backtrace.length) appendLine(env.backtrace.slice(0, 6).join('\n'), 'error');
       }
+    }
+
+    // Build a Ruby single-quoted string literal from `s`. Single-quoted Ruby
+    // strings do NOT interpolate `#{}`, so the text is passed verbatim to
+    // complete_json (only `\\` and `\'` need escaping). Avoids injection via
+    // Ruby string interpolation when the input contains `#`/`{}`.
+    function rubySingleQuote(s) {
+      return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+    }
+
+    // Tab completion via Jamstack::Bridge.complete_json (runs in the game's
+    // binding on the main thread). env.result is the Ruby-inspected JSON string
+    // (eval_code wraps every result with String#inspect), so we parse TWICE:
+    // first unwrap the inspect quoting -> the JSON string, then parse that into
+    // the completion object.
+    function completeRuby() {
+      var text = input.value;
+      if (text === '') return;
+      var raw;
+      try { raw = window.Module.jamstack('Jamstack::Bridge.complete_json(' + rubySingleQuote(text) + ')'); }
+      catch (e) { return; }
+      var env;
+      try { env = JSON.parse(raw || '{}'); } catch (e) { return; }
+      if (!env.ok) { if (env.error) appendLine(env.error, 'error'); return; }
+      var inner, comp;
+      try { inner = JSON.parse(env.result || '""'); }
+      catch (e) { return; }
+      try { comp = (typeof inner === 'string') ? JSON.parse(inner) : inner; }
+      catch (e) { return; }
+      if (!comp || !comp.candidates || comp.candidates.length === 0) return;
+      if (comp.single) {
+        input.value = comp.completed;
+      } else {
+        if (comp.completed != null) input.value = comp.completed;
+        var shown = comp.candidates.length > 40
+          ? comp.candidates.slice(0, 40).concat(['…']) : comp.candidates;
+        appendLine(shown.join('  '), 'info');
+      }
+      autoSize();
+      input.selectionStart = input.selectionEnd = input.value.length;
+    }
+
+    function saveHistory() {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(-200))); } catch (e) {}
+    }
+
+    // Keyboard: Emscripten's GLFW port registers `window.addEventListener(
+    // 'keydown', GLFW.onKeydown, true)` (CAPTURE phase) at runtime init, and
+    // onKeydown calls event.preventDefault() for Backspace and Tab — which kills
+    // the textarea's native backspace-deletion and tab-insertion while the REPL
+    // is focused. It also forwards EVERY key to raylib, so typing `a` here would
+    // also steer the player. We register our OWN window-capture keydown listener
+    // FIRST (this inline script runs before the Emscripten glue inits), so we
+    // run before GLFW.onKeydown. When the REPL input is focused we
+    // stopImmediatePropagation() to fully isolate the REPL from the game.
+    // stopImmediatePropagation does NOT cancel default actions (only
+    // preventDefault does), so letter insertion and Backspace deletion still
+    // happen natively; we only preventDefault the keys we handle ourselves.
+    window.addEventListener('keydown', function (ev) {
+      if (document.activeElement !== input) return;   // game owns the keyboard
+      ev.stopImmediatePropagation();                   // keep Emscripten/raylib off the REPL
+      var k = ev.key;
+      if (k === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        var code = input.value;
+        if (code.trim() === '') { input.value = ''; autoSize(); return; }
+        hist.push(code); histIndex = hist.length; saveHistory();
+        appendLine('> ' + code, 'cmd');
+        input.value = ''; autoSize();
+        evalRuby(code);
+        scrollback.scrollTop = scrollback.scrollHeight;
+      } else if (k === 'ArrowUp') {
+        ev.preventDefault();
+        if (histIndex === hist.length) draftOnHistory = input.value;
+        if (histIndex > 0) { histIndex--; input.value = hist[histIndex] || ''; autoSize(); }
+      } else if (k === 'ArrowDown') {
+        ev.preventDefault();
+        if (histIndex < hist.length) {
+          histIndex++;
+          input.value = (histIndex === hist.length) ? draftOnHistory : (hist[histIndex] || '');
+          autoSize();
+        }
+      } else if (k === 'Tab') {
+        ev.preventDefault();
+        completeRuby();
+      } else if (k === 'l' && ev.ctrlKey) {
+        ev.preventDefault();
+        scrollback.textContent = '';
+      }
+      // Letters, Backspace, Shift+Enter, Left/Right/Home/End: let the textarea
+      // perform its native default (insert/delete/move) — only Emscripten is
+      // suppressed via stopImmediatePropagation above.
+    }, true);
+
+    input.addEventListener('input', autoSize);
+
+    // Tap the `>` prompt to trigger Tab completion (mobile has no Tab key).
+    // preventDefault on touchstart/mousedown keeps focus on the textarea so the
+    // mobile soft keyboard stays open. Guard against double-fire on touch
+    // devices (touchstart then a synthetic mousedown).
+    var promptEl = document.getElementById('prompt');
+    var tabTouched = false;
+    function tapComplete(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      completeRuby();
+      input.focus();
+    }
+    promptEl.addEventListener('touchstart', function (ev) {
+      tabTouched = true;
+      tapComplete(ev);
+    }, { passive: false });
+    promptEl.addEventListener('mousedown', function (ev) {
+      if (tabTouched) { tabTouched = false; return; }
+      tapComplete(ev);
+    });
+    function autoSize() {
+      input.style.height = '1.6em';
+      input.style.height = Math.min(input.scrollHeight, 8 * 20) + 'px';
+    }
+
+    var Module = {
+      arguments: ['game/fx_demo.rb'],
+      canvas: canvas,
+      print: function (t) { console.log(t); },
+      printErr: function (t) { console.error(t); },
+      setStatus: function (t) { statusEl.textContent = t; if (!t) statusEl.style.display = 'none'; },
+      onRuntimeInitialized: function () {
+        Module.jamstack = function (code) {
+          return Module.ccall('jamstack_eval', 'string', ['string'], [code]);
+        };
+        Module.flecsRequest = function (method, path, body) {
+          return Module.ccall('flecs_explorer_request', 'string',
+                              ['string', 'string', 'string'], [method, path, body || '']);
+        };
+        input.disabled = false; input.placeholder = 'type Ruby, then Enter…';
+        replDot.classList.remove('idle');
+        replTarget.textContent = 'fx_demo.rb';
+        appendInfo('Jamstack HTML REPL ready — evals in the live game via jamstack_eval.');
+        appendInfo('Try:  score   player_x = 100   Rl.get_fps   Rl.platform');
+        input.focus();
+      },
     };
-
-    document.getElementById('fullscreen-btn').addEventListener('click', function() {
-      var container = document.getElementById('canvas-container');
-      if (container.requestFullscreen) container.requestFullscreen();
-      else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
-      else if (container.msRequestFullscreen) container.msRequestFullscreen();
-    });
-
-    document.getElementById('file-input').addEventListener('change', function(e) {
-      var file = e.target.files[0];
-      if (!file) return;
-      console.log('File selected:', file.name, 'size:', file.size);
-      document.getElementById('status').textContent = 'Loading ' + file.name + '...';
-      var reader = new FileReader();
-      reader.onload = function(ev) {
-        var data = new Uint8Array(ev.target.result);
-        var filename = '/tmp/' + file.name;
-        console.log('Writing to virtual FS:', filename, 'bytes:', data.length);
-        try { FS.unlink(filename); } catch(ex) {}
-        try { FS.mkdir('/tmp'); } catch(ex) {}
-        FS.writeFile(filename, data);
-        console.log('Calling load_file_web...');
-        Module.ccall('load_file_web', null, ['string'], [filename]);
-        console.log('load_file_web returned');
-        document.getElementById('status').textContent = file.name;
-      };
-      reader.readAsArrayBuffer(file);
-    });
   </script>
-
   {{{ SCRIPT }}}
-
 </body>
 </html>

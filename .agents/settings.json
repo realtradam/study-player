@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "//": "Tool-agnostic harness settings. Reachable as .claude/settings.json via the .claude -> .agents symlink (the 'symlink trick', roadmap H0). Permission allowlist for this repo's known-safe build/run commands and the docs domains we actually fetch. Keep in sync with AGENTS.md 'Commands' and .agents/rules/wsl-toolchain.md.",
+  "permissions": {
+    "allow": [
+      "Bash(zig build:*)",
+      "Bash(./rebuild.sh:*)",
+      "Bash(./build_web.sh:*)",
+      "Bash(EMSDK_ENV=*)",
+      "Bash(rake:*)",
+      "Bash(./zig-out/bin/game:*)",
+      "Bash(node build/web/game.js:*)",
+      "Bash(make clean:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "WebFetch(domain:raylib.com)",
+      "WebFetch(domain:www.raylib.com)",
+      "WebFetch(domain:flecs.dev)",
+      "WebFetch(domain:mikke89.github.io)",
+      "WebFetch(domain:emscripten.org)",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,83 @@
+body {
+    font-family: Mononoki Nerd Font Mono;
+    font-size: 14px;
+    color: #cdd6f4;
+}
+
+/* Screen-space overlay HUD: drawn into the OVERLAY layer (composited AFTER game
+   shaders), so game-stage FX (scanlines/CRT) do NOT touch it — text stays crisp.
+   Top-stage FX (vignette/grayscale) DO affect it (composited before top shaders).
+   NOTE: use `left:` not `right:` — RmlUi miscomputes `right:` (places the box
+   off-screen at x=-300); `left:` resolves correctly. */
+#ovr-panel {
+    position: absolute;
+    left: 420px;
+    top: 80px;
+    width: 240px;
+    padding: 10px 14px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #a6e3a1;
+    border-radius: 10px;
+    background-color: rgba(30, 30, 46, 0.82);
+}
+.title {
+    color: #a6e3a1;
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+.note { color: #a6adc8; margin-bottom: 8px; }
+.stage { color: #89b4fa; font-size: 12px; margin-top: 6px; margin-bottom: 2px; }
+.value { color: #f9e2af; margin-top: 8px; }
+
+/* Clickable effect checklist rows. */
+.chk {
+    display: block;
+    padding: 2px 0;
+    color: #cdd6f4;
+}
+input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+    margin-right: 6px;
+    border-width: 1px;
+    border-color: #585b70;
+    background-color: #1e1e2e;
+}
+input[type="checkbox"]:checked {
+    background-color: #a6e3a1;
+    border-color: #a6e3a1;
+}
+.lbl { vertical-align: middle; }
+
+/* FXAA quality range slider. RmlUi builds <input type=range> from child
+   elements <slidertrack> + <sliderbar> (the draggable thumb) + <sliderprogress>
+   + arrow buttons — NOT ::-rml-slider pseudo-elements. The thumb (sliderbar)
+   MUST have explicit width + a background to be visible/grabbable. */
+.slider { display: block; padding: 5px 0 2px 0; }
+input.range {
+    width: 150px;
+    height: 14px;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+input.range slidertrack {
+    background-color: #313244;
+    height: 6px;
+    margin-top: 4px;
+}
+input.range sliderprogress {
+    background-color: #89b4fa;
+    height: 6px;
+}
+input.range sliderbar {
+    width: 14px;
+    height: 14px;
+    background-color: #89b4fa;
+    border-radius: 3px;
+}
+input.range sliderbar:hover  { background-color: #b4befe; }
+input.range sliderbar:active { background-color: #cdd6f4; }
+input.range sliderarrowdec, input.range sliderarrowinc { display: none; }

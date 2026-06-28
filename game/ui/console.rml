@@ -1,0 +1,13 @@
+<rml>
+<head>
+    <link type="text/rcss" href="console.rcss"/>
+    <title>Console</title>
+</head>
+<body id="console_body">
+    <div id="scrollback"></div>
+    <div id="input_row">
+        <span id="prompt">&gt;</span>
+        <input type="text" id="cmd_input" value=""/>
+    </div>
+</body>
+</rml>

@@ -1,0 +1,245 @@
+#!/bin/sh
+# bin/screenshot — capture a game frame to a PNG, generically (web + desktop).
+#
+# This repo is WEB-FIRST: the relay serves the running game at
+# http://localhost:8080/game.html (start it: `node tools/agent-bridge/server.js`),
+# and the SAME shaders (SMAA/FXAA/CRT) run there. The web capture path works
+# headlessly under WSL via a headless browser. The desktop path uses raylib's own
+# TakeScreenshot framebuffer capture and needs a real display (see WSLg gotcha).
+#
+# Usage:
+#   bin/screenshot <game-script.rb> <output.png> [options]
+#
+#   <game-script.rb>  which game to capture. For --target=web this MUST match the
+#                     game currently set in web/shell.html (Module.arguments) —
+#                     the relay serves whatever the web build was built with. The
+#                     arg is used only to label output + for --target=desktop.
+#   <output.png>      output path. Put it in /tmp/ or .live/ — do NOT commit PNGs.
+#
+# Options:
+#   --target web|desktop   capture target (default: web). web=headless browser
+#                          of the relay-served game; desktop=raylib framebuffer.
+#   --frames N      web: ms to wait after load before capture (default 3000).
+#                   desktop: frames to render before capture (default 30).
+#   --delay SECS    desktop only: extra wall-clock seconds before capture (0).
+#   --timeout SECS  hard timeout for the whole capture (default 30).
+#   --win WxH       viewport size (default 1280x720 web, 720x720 desktop).
+#   --url URL       web only: relay URL (default http://localhost:8080/game.html).
+#   --browser chrome|puppeteer  web only: capture backend. 'chrome' uses a system
+#                   google-chrome/chromium --headless --screenshot if present;
+#                   'puppeteer' uses the project-local puppeteer (downloads a
+#                   headless Chromium on first use). Default: try chrome, else
+#                   puppeteer.
+#   --keep-running  desktop only: capture but do NOT exit the game (default exit).
+#   --game-bin PATH  desktop only: game binary (default zig-out/bin/game).
+#   --ffmpeg         desktop only: force the ffmpeg x11grab fallback.
+#   -h, --help       show this help.
+#
+# Exit 0 + prints the absolute PNG path on success; non-zero on failure. PNGs are
+# validated (file(1) checks the PNG signature + dimensions). See
+# tools/SCREENSHOT.md for the full guide, gotchas, and the WSLg display limit.
+set -eu
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# --- PATH setup (mirror bin/lint + rebuild.sh: strip /mnt/c) ---
+CLEANPATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/mnt/c' | paste -sd:)
+export PATH="$CLEANPATH"
+
+TARGET="web"
+FRAMES=""          # filled per-target default below
+DELAY=0
+TIMEOUT=30
+KEEP_RUNNING=0
+FORCE_FFMPEG=0
+WIN_W=0; WIN_H=0    # 0 => per-target default
+URL="http://localhost:8080/game.html"
+BROWSER=""
+GAME_BIN="zig-out/bin/game"
+GAME_SCRIPT=""
+OUT_PNG=""
+
+show_help() { sed -n '2,40p' "$0"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target)        TARGET="$2"; shift 2 ;;
+    --frames)        FRAMES="$2"; shift 2 ;;
+    --delay)         DELAY="$2"; shift 2 ;;
+    --timeout)       TIMEOUT="$2"; shift 2 ;;
+    --keep-running)  KEEP_RUNNING=1; shift ;;
+    --ffmpeg)        FORCE_FFMPEG=1; shift ;;
+    --win)           WIN_W="${2%x*}"; WIN_H="${2#*x}"; shift 2 ;;
+    --url)           URL="$2"; shift 2 ;;
+    --browser)       BROWSER="$2"; shift 2 ;;
+    --game-bin)      GAME_BIN="$2"; shift 2 ;;
+    -h|--help)       show_help; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "unknown flag: $1 (try --help)" >&2; exit 2 ;;
+    *)
+      if [ -z "$GAME_SCRIPT" ]; then GAME_SCRIPT="$1"
+      elif [ -z "$OUT_PNG" ];    then OUT_PNG="$1"
+      else echo "unexpected extra arg: $1" >&2; exit 2; fi
+      shift ;;
+  esac
+done
+
+if [ -z "$GAME_SCRIPT" ] || [ -z "$OUT_PNG" ]; then
+  echo "usage: bin/screenshot <game-script.rb> <output.png> [options]" >&2
+  echo "  (run 'bin/screenshot --help' for details)" >&2
+  exit 2
+fi
+
+case "$TARGET" in
+  web|desktop) : ;;
+  *) echo "error: --target must be web or desktop (got: $TARGET)" >&2; exit 2 ;;
+esac
+
+# Absolute output path.
+case "$OUT_PNG" in
+  /*) ABS_OUT="$OUT_PNG" ;;
+  *)  ABS_OUT="$(pwd)/$OUT_PNG" ;;
+esac
+mkdir -p "$(dirname "$ABS_OUT")" 2>/dev/null || true
+rm -f "$ABS_OUT"
+
+valid_png() {
+  [ -f "$1" ] || return 1
+  case "$(file -b "$1" 2>/dev/null || true)" in
+    *PNG*image*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ─── WEB target: headless browser of the relay-served game ──────────────────
+capture_web() {
+  [ "$WIN_W" -gt 0 ] 2>/dev/null || WIN_W=1280
+  [ "$WIN_H" -gt 0 ] 2>/dev/null || WIN_H=720
+  [ -n "$FRAMES" ] || FRAMES=3000   # ms to wait after load for shaders to settle
+  echo "── web capture (relay) ─────────────────────────────────────────────"
+  echo "  url:     $URL"
+  echo "  output:  $ABS_OUT"
+  echo "  size:    ${WIN_W}x${WIN_H}   settle: ${FRAMES}ms   timeout: ${TIMEOUT}s"
+
+  if ! curl -s -o /dev/null -m 5 "$URL"; then
+    echo "  error: relay not serving $URL (start it: node tools/agent-bridge/server.js)" >&2
+    return 1
+  fi
+
+  # Pick backend: explicit --browser, else chrome if a system binary exists,
+  # else puppeteer (downloads a headless Chromium into the project cache).
+  use_chrome=0; use_puppeteer=0
+  if [ -n "$BROWSER" ]; then
+    case "$BROWSER" in chrome) use_chrome=1 ;; puppeteer) use_puppeteer=1 ;;
+      *) echo "error: --browser must be chrome or puppeteer" >&2; return 1 ;; esac
+  else
+    for b in google-chrome google-chrome-stable chromium chromium-browser chrome; do
+      if command -v "$b" >/dev/null 2>&1; then CHROME_BIN="$b"; use_chrome=1; break; fi
+    done
+    [ "$use_chrome" = 1 ] || use_puppeteer=1
+  fi
+
+  if [ "$use_chrome" = 1 ]; then
+    echo "  backend: system chrome ($CHROME_BIN)"
+    # --headless=new + --screenshot writes a PNG of the viewport after load.
+    # --run-all-compositor-stages-before-draw + --virtual-time-budget let the
+    # WebGL canvas render frames before the screenshot is taken.
+    "$CHROME_BIN" --headless=new --disable-gpu --no-sandbox \
+      --hide-scrollbars --force-device-scale-factor=1 \
+      --window-size="${WIN_W},${WIN_H}" --virtual-time-budget="$FRAMES" \
+      --run-all-compositor-stages-before-draw \
+      --screenshot="$ABS_OUT" "$URL" >/tmp/ss.chrome.log 2>&1 || true
+  fi
+
+  if [ "$use_puppeteer" = 1 ]; then
+    echo "  backend: puppeteer (project-local)"
+    if [ ! -d node_modules/puppeteer ]; then
+      echo "  error: puppeteer not installed. One-time setup (downloads ~180MB Chromium):" >&2
+      echo "    npm install puppeteer   # then re-run" >&2
+      return 1
+    fi
+    PUPPETEER_CACHE_DIR="$ROOT/.puppeteer-cache" \
+      node tools/web_screenshot.js "$URL" "$ABS_OUT" "$FRAMES" "$WIN_W" "$WIN_H" \
+      >/tmp/ss.puppeteer.log 2>&1 || { cat /tmp/ss.puppeteer.log >&2; return 1; }
+  fi
+}
+
+# ─── DESKTOP target: raylib framebuffer capture (env hook) + ffmpeg fallback ─
+capture_desktop() {
+  [ "$WIN_W" -gt 0 ] 2>/dev/null || WIN_W=720
+  [ "$WIN_H" -gt 0 ] 2>/dev/null || WIN_H=720
+  [ -n "$FRAMES" ] || FRAMES=30
+  if [ ! -f "$GAME_BIN" ]; then
+    echo "error: game binary not found at $GAME_BIN (run ./rebuild.sh first)" >&2; return 1
+  fi
+  if [ ! -f "$GAME_SCRIPT" ]; then
+    echo "error: game script not found: $GAME_SCRIPT" >&2; return 1
+  fi
+  # WSLg: prefer the Wayland backend (raylib is built Wayland-only — see
+  # .agents/knowledge/environment.md). FALL BACK to X11 if the caller set DISPLAY.
+  : "${XDG_RUNTIME_DIR:=/mnt/wslg/runtime-dir}"; export XDG_RUNTIME_DIR
+  : "${WAYLAND_DISPLAY:=wayland-0}"; export WAYLAND_DISPLAY
+  echo "── desktop capture (raylib framebuffer) ──────────────────────────────"
+  echo "  game:    $GAME_SCRIPT   output: $ABS_OUT"
+  echo "  frames:  $FRAMES  delay: ${DELAY}s  timeout: ${TIMEOUT}s"
+  echo "  (WSLg note: this needs a driven display — see tools/SCREENSHOT.md)"
+
+  raylib_capture() {
+    export JAMSTACK_SCREENSHOT="$ABS_OUT"
+    export JAMSTACK_SCREENSHOT_FRAMES="$FRAMES"
+    export JAMSTACK_SCREENSHOT_DELAY="$DELAY"
+    if [ "$KEEP_RUNNING" = 1 ]; then export JAMSTACK_SCREENSHOT_ONCE=0
+    else unset JAMSTACK_SCREENSHOT_ONCE; fi
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "${TIMEOUT}s" "$GAME_BIN" "$GAME_SCRIPT" >"$ABS_OUT.game.log" 2>&1 &
+    else
+      "$GAME_BIN" "$GAME_SCRIPT" >"$ABS_OUT.game.log" 2>&1 &
+    fi
+    GAME_PID=$!
+    deadline=$(( $(date +%s) + TIMEOUT ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      valid_png "$ABS_OUT" && break
+      if ! kill -0 "$GAME_PID" 2>/dev/null; then
+        valid_png "$ABS_OUT" || { echo "  game exited w/o PNG; log tail:" >&2; tail -20 "$ABS_OUT.game.log" >&2 || true; }
+        break
+      fi
+      sleep 0.25
+    done
+    if kill -0 "$GAME_PID" 2>/dev/null; then kill "$GAME_PID" 2>/dev/null || true; sleep 0.5; kill -9 "$GAME_PID" 2>/dev/null || true; fi
+    wait "$GAME_PID" 2>/dev/null || true
+    rm -f "$ABS_OUT.game.log"
+  }
+
+  ffmpeg_capture() {
+    echo "── ffmpeg x11grab fallback ─────────────────────────────────────────"
+    : "${DISPLAY:=:0}"; export DISPLAY
+    "$GAME_BIN" "$GAME_SCRIPT" >"$ABS_OUT.game.log" 2>&1 & GAME_PID=$!
+    sleep "$(awk -v f="$FRAMES" 'BEGIN{ printf "%.2f", f/60.0 }')"
+    ffmpeg -y -f x11grab -video_size "${WIN_W}x${WIN_H}" -framedrop \
+           -i "$DISPLAY" -frames:v 1 "$ABS_OUT" >"$ABS_OUT.ff.log" 2>&1 || true
+    if kill -0 "$GAME_PID" 2>/dev/null; then kill "$GAME_PID" 2>/dev/null || true; sleep 0.3; kill -9 "$GAME_PID" 2>/dev/null || true; fi
+    wait "$GAME_PID" 2>/dev/null || true
+    rm -f "$ABS_OUT.game.log" "$ABS_OUT.ff.log"
+  }
+
+  [ "$FORCE_FFMPEG" != 1 ] && { raylib_capture || true; }
+  if { [ "$FORCE_FFMPEG" = 1 ] || ! valid_png "$ABS_OUT"; }; then
+    [ "$FORCE_FFMPEG" != 1 ] && echo "  raylib path produced no PNG — trying ffmpeg fallback" >&2
+    ffmpeg_capture || true
+  fi
+}
+
+case "$TARGET" in
+  web)     capture_web || true ;;
+  desktop) capture_desktop || true ;;
+esac
+
+if valid_png "$ABS_OUT"; then
+  echo "✓ captured: $ABS_OUT"
+  echo "  $(file -b "$ABS_OUT")"
+  exit 0
+else
+  echo "✗ failed to capture a valid PNG at $ABS_OUT" >&2
+  exit 1
+fi

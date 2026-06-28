@@ -1,0 +1,31 @@
+body {
+    font-family: Mononoki Nerd Font Mono;
+    font-size: 14px;
+    color: #cdd6f4;
+}
+
+/* In-world panel: tilted in 3D toward the viewer (CSS-3D), so it sits in the
+   game layer and catches the GAME-stage shaders (scanlines/CRT warp it). */
+#game-panel {
+    position: absolute;
+    left: 60px;
+    top: 80px;
+    width: 220px;
+    padding: 10px 14px;
+    box-sizing: border-box;
+    border-width: 1px;
+    border-color: #89b4fa;
+    border-radius: 10px;
+    background-color: rgba(30, 30, 46, 0.78);
+    transform: perspective(900px) rotate3d(0, 1, 0, 22deg);
+    transform-origin-x: 0%;
+    transform-origin-y: 50%;
+}
+.title {
+    color: #89b4fa;
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+.note { color: #a6adc8; }
+.value { color: #f9e2af; margin-top: 6px; }

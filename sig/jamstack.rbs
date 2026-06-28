@@ -1,0 +1,19 @@
+# Jamstack module — REPL console, live-mount helpers.
+# Mirrors mrbgems/rmlui/mrblib/console.rb + mrbgems/raylib/mrblib/live.rb.
+
+module Jamstack
+end
+
+class Jamstack::Console
+  attr_reader doc: Rml::Document
+  attr_reader input: Rml::Element
+  attr_reader scrollback: Rml::Element
+
+  def initialize: (Rml::Context ctx, ?binding: untyped, ?toggle_key: Integer, ?rml_path: String) -> void
+  def open?: () -> bool
+  def update: () -> void
+  def toggle: () -> void
+  def show: () -> void
+  def hide: () -> void
+  def puts: (untyped msg) -> void
+end

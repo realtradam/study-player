@@ -1,0 +1,352 @@
+# Jolt Physics Ruby API signatures (hand-written from docs/API_SPEC_JOLT.md).
+# Mirrors mrbgems/jolt/mrblib/jolt.rb (public API) + the low-level C primitives
+# in mrbgems/jolt/src/jolt_bindings.c (the Jolt::World#_* and Jolt._* methods
+# the sugar wraps). Vectors accept Array[Numeric] or Rl::Vector3/Vector4 and are
+# returned as Rl::Vector3/Vector4 when raylib is present (the documented contract).
+
+# A 3-component vector: a plain Array of numerics [x, y, z] or an Rl::Vector3.
+type vec3 = Array[Numeric] | Rl::Vector3
+
+# A quaternion / 4-component vector: [x, y, z, w] or an Rl::Vector4.
+type quat = Array[Numeric] | Rl::Vector4
+
+module Jolt
+  # Motion types (Integer constants). A body's collision layer is derived from
+  # its motion type (static -> STATIC layer, else MOVING layer).
+  STATIC: Integer
+  KINEMATIC: Integer
+  DYNAMIC: Integer
+
+  # --- shape factories (module functions) ---
+  # Full dimensions, NOT half-extents (box divides by 2 internally).
+  def self.box: (Numeric width, Numeric height, Numeric depth) -> Jolt::Shape
+  def self.sphere: (Numeric radius) -> Jolt::Shape
+  # half_height = half the cylindrical section (capsule/cylinder).
+  def self.capsule: (Numeric half_height, Numeric radius) -> Jolt::Shape
+  def self.cylinder: (Numeric half_height, Numeric radius) -> Jolt::Shape
+  # Convex hull from points: Array of [x,y,z] triplets OR a flat [x,y,z,...] Array.
+  def self.convex_hull: (Array[Array[Numeric] | Numeric] points) -> Jolt::Shape
+  # Triangle mesh (STATIC bodies only): Array of [x,y,z] triples or flat; 3 verts/tri.
+  def self.mesh: (Array[Array[Numeric] | Numeric] vertices) -> Jolt::Shape
+
+  # --- vector coercion helpers (internal; in => Array[Float], out => Rl type) ---
+  def self.v3: (vec3 v) -> Array[Float]
+  def self.v4: (quat v) -> Array[Float]
+  # Whether raylib (Rl::Vector3/4) is available for output coercion (memoized).
+  def self.rl?: () -> bool
+  # Wrap a 3/4-float Array into Rl::Vector3/4 when raylib is present, else return it.
+  def self.out3: (Array[Numeric] a) -> (Rl::Vector3 | Array[Numeric])
+  def self.out4: (Array[Numeric] a) -> (Rl::Vector4 | Array[Numeric])
+
+  # --- low-level shape primitives (jolt_bindings.c; take half-extents) ---
+  def self._box: (Float hx, Float hy, Float hz) -> Jolt::Shape
+  def self._sphere: (Float r) -> Jolt::Shape
+  def self._capsule: (Float half_height, Float r) -> Jolt::Shape
+  def self._cylinder: (Float half_height, Float r) -> Jolt::Shape
+  def self._convex_hull: (Array[Numeric] points) -> Jolt::Shape
+  def self._mesh: (Array[Numeric] vertices) -> Jolt::Shape
+end
+
+# A reusable collision volume (box/sphere/capsule/cylinder/convex_hull/mesh).
+# Reference-counted in Jolt; the body holds a ref. Opaque data object.
+class Jolt::Shape
+end
+
+class Jolt::World
+  def initialize: (?gravity: vec3, ?max_bodies: Integer) -> void
+
+  # --- simulation ---
+  def gravity=: (vec3 v) -> vec3
+  # Advance the simulation. `collision_steps` = sub-steps per call. Returns self.
+  def step: (?Float dt, ?collision_steps: Integer) -> Jolt::World
+  alias update step
+  def optimize_broad_phase: () -> Jolt::World
+
+  # --- bodies ---
+  # Create + add a body. `shape` required; all others have defaults.
+  # `motion`: Jolt::STATIC/KINEMATIC/DYNAMIC. `mass`: nil = density-derived.
+  # `velocity`/`user_data`/`mass` default to nil. Returns the new Body.
+  def body: (
+    shape: Jolt::Shape,
+    ?position: vec3,
+    ?rotation: quat,
+    ?motion: Integer,
+    ?restitution: Float,
+    ?friction: Float,
+    ?activate: bool,
+    ?velocity: vec3?,
+    ?user_data: Integer?,
+    ?linear_damping: Float,
+    ?angular_damping: Float,
+    ?mass: Float?,
+    ?ccd: bool,
+    ?sensor: bool
+  ) -> Jolt::Body
+  alias add_body body
+
+  # Bodies whose shape contains `point` (overlap query).
+  def overlap_point: (vec3 point) -> Array[Jolt::Body]
+
+  # Collisions that BEGAN this step (OnContactAdded only — not persisted, so small).
+  def contacts: () -> Array[Jolt::Contact]
+  # Collisions that ENDED this step (stopped touching). Pair with sensor bodies
+  # for trigger leave events.
+  def contacts_ended: () -> Array[Jolt::ContactEnd]
+
+  # --- constraints / joints (the world retains each; call #remove to delete) ---
+  # weld two bodies rigidly at their current relative transform.
+  def weld: (Jolt::Body a, Jolt::Body b) -> Jolt::Constraint
+  # point-to-point joint (free rotation about a world-space point).
+  def ball_joint: (Jolt::Body a, Jolt::Body b, vec3 point) -> Jolt::Constraint
+  # rope/rod between two world-space attach points within [min, max] metres.
+  def distance_joint: (Jolt::Body a, Jolt::Body b, vec3 point_a, vec3 point_b, ?min: Float, ?max: Float?) -> Jolt::Constraint
+  # hinge (door) about `axis` through world `point`; angle limits in DEGREES.
+  def hinge: (Jolt::Body a, Jolt::Body b, vec3 point, vec3 axis, ?min_deg: Float, ?max_deg: Float) -> Jolt::Constraint
+  # slider (piston) along `axis` through world `point`; limits in METRES.
+  def slider: (Jolt::Body a, Jolt::Body b, vec3 point, vec3 axis, ?min: Float, ?max: Float) -> Jolt::Constraint
+  # cone / swing limit about `axis` through world `point`; half-angle in DEGREES.
+  def cone: (Jolt::Body a, Jolt::Body b, vec3 point, vec3 axis, ?half_angle_deg: Float) -> Jolt::Constraint
+
+  # --- character controller + ragdoll ---
+  # Kinematic player capsule (Jolt CharacterVirtual) with stair/slope handling.
+  def character: (shape: Jolt::Shape, ?position: vec3, ?max_slope_deg: Float, ?mass: Float) -> Jolt::Character
+  # Tree of dynamic bodies wired with swing-twist joints. `parts` listed
+  # PARENTS BEFORE CHILDREN (skeleton order); each is a Hash (see API_SPEC_JOLT.md §4b).
+  def ragdoll: (parts: Array[Hash[Symbol, untyped]], ?user_data: Integer) -> Jolt::Ragdoll
+
+  # --- queries ---
+  # Cast a ray (direction is the full ray vector). nil if nothing is hit.
+  def raycast: (vec3 origin, vec3 direction) -> Jolt::RayHit?
+
+  # --- internal retain/forget (the world owns its joints/ragdolls; see #initialize) ---
+  def _retain_joint: (Jolt::Constraint c) -> Jolt::Constraint
+  def _forget_joint: (Jolt::Constraint c) -> Jolt::Constraint?
+  def _forget_ragdoll: (Jolt::Ragdoll r) -> Jolt::Ragdoll?
+
+  # --- low-level C primitives (jolt_bindings.c) ---
+  def _setup: (Float gx, Float gy, Float gz, Integer max_bodies) -> Jolt::World
+  def _step: (Float dt, Integer collision_steps) -> Jolt::World
+  def _optimize: () -> Jolt::World
+  def _set_gravity: (Float x, Float y, Float z) -> Jolt::World
+  # -> body id (Integer). 17-arg format "offfffffiffbfffbb" (see jolt-binding.md).
+  def _add_body: (
+    Jolt::Shape shape,
+    Float px, Float py, Float pz,
+    Float qx, Float qy, Float qz, Float qw,
+    Integer motion,
+    Float restitution, Float friction,
+    bool activate,
+    Float linear_damping, Float angular_damping, Float mass,
+    bool ccd, bool sensor
+  ) -> Integer
+  def _remove_body: (Integer id) -> Jolt::World
+  def _position: (Integer id) -> Array[Float]
+  def _com_position: (Integer id) -> Array[Float]
+  def _rotation: (Integer id) -> Array[Float]
+  def _set_transform: (Integer id, Float px, Float py, Float pz, Float qx, Float qy, Float qz, Float qw, bool activate) -> Jolt::World
+  def _linear_velocity: (Integer id) -> Array[Float]
+  def _set_linear_velocity: (Integer id, Float x, Float y, Float z) -> Jolt::World
+  def _angular_velocity: (Integer id) -> Array[Float]
+  def _set_angular_velocity: (Integer id, Float x, Float y, Float z) -> Jolt::World
+  def _add_force: (Integer id, Float x, Float y, Float z) -> Jolt::World
+  def _add_impulse: (Integer id, Float x, Float y, Float z) -> Jolt::World
+  def _add_torque: (Integer id, Float x, Float y, Float z) -> Jolt::World
+  def _active?: (Integer id) -> bool
+  def _activate: (Integer id) -> Jolt::World
+  def _deactivate: (Integer id) -> Jolt::World
+  # -> [body_id, fraction, hx,hy,hz, nx,ny,nz] | nil
+  def _raycast: (Float ox, Float oy, Float oz, Float dx, Float dy, Float dz) -> Array[untyped]?
+  # -> Array of [idA, idB, px,py,pz, nx,ny,nz]
+  def _contacts: () -> Array[Array[untyped]]
+  # -> Array of [idA, idB]
+  def _contacts_ended: () -> Array[[Integer, Integer]]
+  # -> Array of body ids whose shape contains the point
+  def _overlap_point: (Float x, Float y, Float z) -> Array[Integer]
+  def _set_sensor: (Integer id, bool v) -> Jolt::World
+  def _set_ccd: (Integer id, bool v) -> Jolt::World
+  def _fixed: (Integer a, Integer b) -> Jolt::Constraint
+  def _point: (Integer a, Integer b, Float px, Float py, Float pz) -> Jolt::Constraint
+  def _distance: (Integer a, Integer b, Float ax, Float ay, Float az, Float bx, Float by, Float bz, Float min, Float max) -> Jolt::Constraint
+  def _hinge: (Integer a, Integer b, Float px, Float py, Float pz, Float ax, Float ay, Float az, Float min, Float max) -> Jolt::Constraint
+  def _slider: (Integer a, Integer b, Float px, Float py, Float pz, Float ax, Float ay, Float az, Float min, Float max) -> Jolt::Constraint
+  def _cone: (Integer a, Integer b, Float px, Float py, Float pz, Float ax, Float ay, Float az, Float half) -> Jolt::Constraint
+  def _user_data: (Integer id) -> Integer
+  def _set_user_data: (Integer id, Integer v) -> Jolt::World
+  def _motion_type: (Integer id) -> Integer
+  def _set_motion_type: (Integer id, Integer mt, bool activate) -> Jolt::World
+  def _friction: (Integer id) -> Float
+  def _set_friction: (Integer id, Float v) -> Jolt::World
+  def _restitution: (Integer id) -> Float
+  def _set_restitution: (Integer id, Float v) -> Jolt::World
+  def _gravity_factor: (Integer id) -> Float
+  def _set_gravity_factor: (Integer id, Float v) -> Jolt::World
+  def _character: (Jolt::Shape shape, Float px, Float py, Float pz, Float slope_deg, Float mass) -> Jolt::Character
+  def _ragdoll: (Array[Array[untyped]] parts, Integer user_data) -> Jolt::Ragdoll
+end
+
+# A rigid body: a body id bound to its world. Created by World#body (not
+# constructed directly by game code).
+class Jolt::Body
+  attr_reader id: Integer
+  attr_reader world: Jolt::World
+
+  def initialize: (Jolt::World world, Integer id) -> void
+  def to_i: () -> Integer
+  alias to_int to_i
+
+  def position: () -> Rl::Vector3
+  def position=: (vec3 v) -> vec3
+  def center_of_mass: () -> Rl::Vector3
+  def rotation: () -> Rl::Vector4
+  def set_transform: (position: vec3, ?rotation: quat?, ?activate: bool) -> Jolt::Body
+
+  def linear_velocity: () -> Rl::Vector3
+  def linear_velocity=: (vec3 v) -> vec3
+  def angular_velocity: () -> Rl::Vector3
+  def angular_velocity=: (vec3 v) -> vec3
+
+  # Chainable: apply a force/impulse/torque (world-space vector) to the body.
+  def apply_force: (vec3 v) -> Jolt::Body
+  def apply_impulse: (vec3 v) -> Jolt::Body
+  def apply_torque: (vec3 v) -> Jolt::Body
+
+  def active?: () -> bool
+  def activate: () -> Jolt::Body
+  def deactivate: () -> Jolt::Body
+  def remove: () -> void
+
+  # 64-bit tag (e.g. a flecs entity id) for collision lookup.
+  def user_data: () -> Integer
+  def user_data=: (Integer v) -> Integer
+
+  def motion_type: () -> Integer
+  def motion_type=: (Integer mt) -> Integer
+  def set_motion_type: (Integer mt, ?activate: bool) -> Jolt::Body
+
+  # tunable properties (get + set)
+  def friction: () -> Float
+  def friction=: (Float v) -> Float
+  def restitution: () -> Float
+  def restitution=: (Float v) -> Float
+  def gravity_factor: () -> Float
+  def gravity_factor=: (Float v) -> Float
+  # sensor: detects overlaps (contacts/contacts_ended) without a physical response.
+  def sensor=: (bool v) -> bool
+  # continuous collision detection (linear cast) — fast bodies vs thin walls.
+  def ccd=: (bool v) -> bool
+
+  def ==: (untyped other) -> bool
+  def inspect: () -> String
+end
+
+# Result of World#raycast (nil if nothing was hit).
+class Jolt::RayHit
+  attr_reader body_id: Integer
+  attr_reader fraction: Float
+  attr_reader point: Rl::Vector3
+  attr_reader normal: Rl::Vector3
+
+  def body: () -> Jolt::Body
+end
+
+# A constraint/joint (World#weld/ball_joint/distance_joint/hinge/slider/cone).
+# The world retains it; you don't need to hold the handle to keep the joint alive.
+class Jolt::Constraint
+  # detach + destroy now (also done on GC). Chainable.
+  def remove: () -> Jolt::Constraint
+  def _remove: () -> Jolt::Constraint
+end
+
+# A collision that began this step (from World#contacts).
+class Jolt::Contact
+  attr_reader body_a_id: Integer
+  attr_reader body_b_id: Integer
+  attr_reader point: Rl::Vector3
+  attr_reader normal: Rl::Vector3
+
+  def body_a: () -> Jolt::Body
+  def body_b: () -> Jolt::Body
+  # is a given body/id in this contact?
+  def involves?: (Jolt::Body | Integer x) -> bool
+  # the *other* body in the contact.
+  def other: (Jolt::Body | Integer x) -> Jolt::Body
+end
+
+# A collision that ENDED this step (from World#contacts_ended). No point/normal.
+class Jolt::ContactEnd
+  attr_reader body_a_id: Integer
+  attr_reader body_b_id: Integer
+
+  def body_a: () -> Jolt::Body
+  def body_b: () -> Jolt::Body
+  def involves?: (Jolt::Body | Integer x) -> bool
+  def other: (Jolt::Body | Integer x) -> Jolt::Body
+end
+
+# Kinematic character controller (Jolt CharacterVirtual). Not a rigid body — you
+# set its velocity each frame (applying gravity/jump yourself) and call #update,
+# which moves and slides it along the world, stepping stairs and handling slopes.
+class Jolt::Character
+  GROUND: Hash[Integer, Symbol]
+
+  def update: (?Float dt) -> Jolt::Character
+  def position: () -> Rl::Vector3
+  def position=: (vec3 v) -> vec3
+  def velocity: () -> Rl::Vector3
+  def velocity=: (vec3 v) -> vec3
+
+  # :on_ground | :on_steep | :not_supported | :in_air
+  def ground_state: () -> Symbol
+  def on_ground?: () -> bool
+  def supported?: () -> bool
+  def ground_normal: () -> Rl::Vector3
+
+  # velocity of the surface underfoot (moving platform / elevator); zero if airborne.
+  def ground_velocity: () -> Rl::Vector3
+  # the body the character stands on, or nil when airborne.
+  def ground_body: () -> Jolt::Body?
+
+  # like #update, but first ADDS ground_velocity so a KINEMATIC platform carries
+  # the player. Only STATIC/KINEMATIC ground is inherited (dynamic ground ignored).
+  def ride: (?Float dt) -> Jolt::Character
+
+  # max force (N) exerted on dynamic bodies it walks into (raise above 100 N default).
+  def max_strength: () -> Float
+  def max_strength=: (Float v) -> Float
+  # effective mass vs. dynamic bodies (still kinematic to gravity). Setter only.
+  def mass=: (Float v) -> Float
+
+  # --- low-level C primitives (jolt_bindings.c) ---
+  def _update: (Float dt) -> Jolt::Character
+  def _position: () -> Array[Float]
+  def _set_position: (Float x, Float y, Float z) -> Jolt::Character
+  def _velocity: () -> Array[Float]
+  def _set_velocity: (Float x, Float y, Float z) -> Jolt::Character
+  def _ground_state: () -> Integer
+  def _ground_normal: () -> Array[Float]
+  def _supported?: () -> bool
+  def _ground_velocity: () -> Array[Float]
+  def _ground_body_id: () -> Integer
+  def _max_strength: () -> Float
+  def _set_max_strength: (Float v) -> Jolt::Character
+  def _set_mass: (Float v) -> Jolt::Character
+end
+
+# A ragdoll: a tree of dynamic bodies wired with swing-twist joints (from
+# World#ragdoll). Each body is a normal Jolt::Body — read position/rotation to
+# render, apply impulses to fling it around.
+class Jolt::Ragdoll
+  # Array<Jolt::Body>, one per part, in skeleton order (memoized).
+  def bodies: () -> Array[Jolt::Body]
+  def body_count: () -> Integer
+  def []: (Integer i) -> Jolt::Body
+  def activate: () -> Jolt::Ragdoll
+  # take it out of the world (also on GC). Chainable.
+  def remove: () -> Jolt::Ragdoll
+
+  # --- low-level C primitives (jolt_bindings.c) ---
+  def _body_count: () -> Integer
+  def _body_id: (Integer i) -> Integer
+  def _activate: () -> Jolt::Ragdoll
+  def _remove: () -> Jolt::Ragdoll
+end

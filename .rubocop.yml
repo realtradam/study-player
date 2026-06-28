@@ -1,0 +1,361 @@
+# RuboCop config for raylib-jamstack.
+#
+# Game code is mruby 3.3 (a subset of Ruby 3.3); the mrbgem mrblib/ sugar and
+# the tools/ generators run on the host MRI 3.4.8 that runs RuboCop itself.
+# RuboCop runs ON MRI but ANALYZES code targeting any Ruby version — setting
+# TargetRubyVersion: 3.4 makes the parser accept mruby's endless methods
+# (`def foo = expr`, Ruby 3.0+ syntax) without false "unexpected token tEQL"
+# syntax errors. (The upstream mruby repo uses the same TargetRubyVersion: 3.4
+# in its own .rubocop.yml.)
+#
+# Pattern: DisabledByDefault + enable whole departments (Layout, Lint) +
+# a curated Style subset. This mirrors the upstream mruby repo's approach
+# (DisabledByDefault: true — they enable only 3 layout cops; we enable more but
+# the principle is identical: opt-in, never the full default set). Cops that
+# suggest MRI-only stdlib methods (Performance/*, some Style/* like FetchEnvVar)
+# are NOT enabled — they'd false-positive on mruby's smaller stdlib.
+#
+# Run manually:  bin/lint           (report only)
+#               bin/lint --fix     (safe autocorrect layout/lint)
+# Run directly: rubocop           (report)  /  rubocop -a  (safe autocorrect)
+#
+# See .agents/knowledge/linting.md for the full rationale + how it fits with
+# the LSP/Steep setup (linting is MANUAL; syntax errors are caught at build time
+# by the mruby-compiler gem; type errors by Steep per-edit).
+
+AllCops:
+  DisabledByDefault: true
+  TargetRubyVersion: 3.4
+  NewCops: disable
+  Exclude:
+    - 'vendor/**/*'          # vendored mruby/raylib/rmlui/flecs/joltc sources
+    - 'build/**/*'           # mruby build outputs
+    - 'zig-out/**/*'         # zig build outputs
+    - '.cache/**/*'          # transient caches
+    - '.live/**/*'           # runtime agent-bridge mount (dev-only)
+    - '.ruby-lsp/**/*'       # ruby-lsp's private bundle
+    - 'steep-2.0.0.gem'      # vendored steep gem (not Ruby source)
+
+# ─── Layout: whole department — pure syntax (spacing/indentation), mruby-safe ─
+# Layout cops carry NO runtime assumptions; they're safe for mruby. Aligned with
+# the existing 2-space-indent, ~100-col style.
+Layout:
+  Enabled: true
+
+Layout/EndOfLine:
+  EnforcedStyle: lf
+Layout/IndentationStyle:
+  EnforcedStyle: spaces
+Layout/IndentationWidth:
+  Width: 2
+Layout/LineLength:
+  Max: 100
+  AllowedPatterns: ['\A\s*#']   # long comment lines OK
+
+# ─── Lint: whole department — real bug-finders, runtime-safe ──────────────────
+# Catches duplicated hash keys, useless assignments, ambiguous operators, etc.
+# These are valuable and don't assume MRI stdlib.
+Lint:
+  Enabled: true
+
+# The game loop and bridge intentionally rescue Exception (not StandardError) to
+# keep the game running / log exceptions instead of crashing. This is a
+# deliberate pattern across mrbgems/*/mrblib/ (raylib.rb, live.rb, hot.rb).
+Lint/RescueException:
+  Enabled: false
+
+# ─── Style: curated safe subset (no MRI-stdlib suggestions) ───────────────────
+# DisabledByDefault means Style is off entirely; we opt into specific cops that
+# are purely syntactic / conventional. Deliberately NOT enabled: cops that
+# suggest MRI-only behavior — Style/FetchEnvVar, Style/EnvHome, Style/OpenStructUse,
+# Style/Documentation (game scripts are un-annotated),
+# Style/FrozenStringLiteralComment (mruby ignores it; noise).
+
+Style/AndOr:
+  Enabled: true
+Style/BlockDelimiters:
+  Enabled: true
+Style/ClassCheck:
+  Enabled: true
+Style/ColonMethodCall:
+  Enabled: true
+Style/ColonMethodDefinition:
+  Enabled: true
+Style/CommandLiteral:
+  Enabled: true
+Style/CommentAnnotation:
+  Enabled: true
+Style/DefWithParentheses:
+  Enabled: true
+Style/DoubleNegation:
+  Enabled: true
+Style/EachForSimpleLoop:
+  Enabled: true
+Style/EmptyElse:
+  Enabled: true
+Style/EmptyLiteral:
+  Enabled: true
+Style/EmptyMethod:
+  Enabled: true
+Style/EndlessMethod:
+  Enabled: true
+  EnforcedStyle: allow_single_line
+Style/EvalWithLocation:
+  Enabled: true
+Style/EvenOdd:
+  Enabled: true
+Style/For:
+  Enabled: true
+Style/FormatString:
+  Enabled: true
+Style/FormatStringToken:
+  Enabled: true
+Style/GuardClause:
+  Enabled: true
+Style/HashSyntax:
+  Enabled: true
+Style/IdenticalConditionalBranches:
+  Enabled: true
+Style/IfInsideElse:
+  Enabled: true
+Style/IfUnlessModifier:
+  Enabled: true
+Style/IfUnlessModifierOfIfUnless:
+  Enabled: true
+Style/InfiniteLoop:
+  Enabled: true
+Style/KeywordParametersOrder:
+  Enabled: true
+Style/Lambda:
+  Enabled: true
+Style/LambdaCall:
+  Enabled: true
+Style/LineEndConcatenation:
+  Enabled: true
+Style/MethodCallWithoutArgsParentheses:
+  Enabled: true
+Style/MethodCalledOnDoEndBlock:
+  Enabled: true
+Style/MethodDefParentheses:
+  Enabled: true
+Style/MinMax:
+  Enabled: true
+Style/MultilineBlockChain:
+  Enabled: true
+Style/MultilineIfModifier:
+  Enabled: true
+Style/MultilineIfThen:
+  Enabled: true
+Style/MultilineMemoization:
+  Enabled: true
+Style/MultilineMethodSignature:
+  Enabled: true
+Style/MultilineTernaryOperator:
+  Enabled: true
+Style/MultilineWhenThen:
+  Enabled: true
+Style/MultipleComparison:
+  Enabled: true
+Style/MutableConstant:
+  Enabled: true
+Style/NegatedIf:
+  Enabled: true
+Style/NegatedUnless:
+  Enabled: true
+Style/NegatedWhile:
+  Enabled: true
+Style/NestedModifier:
+  Enabled: true
+Style/NestedParenthesizedCalls:
+  Enabled: true
+Style/NestedTernaryOperator:
+  Enabled: true
+Style/Next:
+  Enabled: true
+Style/NilComparison:
+  Enabled: true
+Style/NonNilCheck:
+  Enabled: true
+Style/Not:
+  Enabled: true
+Style/NumericLiteralPrefix:
+  Enabled: true
+Style/NumericLiterals:
+  Enabled: true
+Style/NumericPredicate:
+  Enabled: true
+Style/OneLineConditional:
+  Enabled: true
+Style/OptionalArguments:
+  Enabled: true
+Style/OrAssignment:
+  Enabled: true
+Style/ParallelAssignment:
+  Enabled: true
+Style/ParenthesesAroundCondition:
+  Enabled: true
+Style/PercentLiteralDelimiters:
+  Enabled: true
+Style/PercentQLiterals:
+  Enabled: true
+Style/PerlBackrefs:
+  Enabled: true
+Style/PreferredHashMethods:
+  Enabled: false   # suggests MRI Hash methods — mruby-safe to leave off
+Style/Proc:
+  Enabled: true
+Style/QuotedSymbols:
+  Enabled: true
+Style/RaiseArgs:
+  Enabled: true
+Style/RandomWithOffset:
+  Enabled: true
+Style/RedundantBegin:
+  Enabled: true
+Style/RedundantConditional:
+  Enabled: true
+Style/RedundantException:
+  Enabled: true
+Style/RedundantFetchBlock:
+  Enabled: true
+Style/RedundantFreeze:
+  Enabled: true
+Style/RedundantInterpolation:
+  Enabled: true
+Style/RedundantParentheses:
+  Enabled: true
+Style/RedundantRegexpCharacterClass:
+  Enabled: true
+Style/RedundantRegexpEscape:
+  Enabled: true
+Style/RedundantReturn:
+  Enabled: true
+Style/RedundantSelf:
+  Enabled: true
+Style/RedundantSelfAssignment:
+  Enabled: true
+Style/RedundantSelfAssignmentBranch:
+  Enabled: true
+Style/RedundantSort:
+  Enabled: true
+Style/RedundantSortBy:
+  Enabled: true
+Style/RedundantStringEscape:
+  Enabled: true
+Style/RegexpLiteral:
+  Enabled: true
+Style/RescueModifier:
+  Enabled: true
+Style/RescueStandardError:
+  Enabled: true
+Style/SafeNavigation:
+  Enabled: true
+Style/Sample:
+  Enabled: true
+Style/SelfAssignment:
+  Enabled: true
+Style/Semicolon:
+  Enabled: true
+Style/SendWithLiteralMethodName:
+  Enabled: true
+Style/SignalException:
+  Enabled: true
+Style/SingleLineMethods:
+  Enabled: true
+Style/SlicingWithRange:
+  Enabled: true
+Style/SoleNestedConditional:
+  Enabled: true
+Style/SpecialGlobalVars:
+  Enabled: true
+Style/StabbyLambdaParentheses:
+  Enabled: true
+Style/StderrPuts:
+  Enabled: true
+Style/StringChars:
+  Enabled: true
+Style/StringConcatenation:
+  Enabled: true
+Style/StringLiterals:
+  Enabled: true
+  EnforcedStyle: double_quotes
+Style/StringLiteralsInInterpolation:
+  Enabled: true
+  EnforcedStyle: double_quotes
+Style/StructInheritance:
+  Enabled: true
+Style/SuperArguments:
+  Enabled: true
+Style/SwapValues:
+  Enabled: true
+Style/SymbolArray:
+  Enabled: true
+Style/SymbolLiteral:
+  Enabled: true
+Style/SymbolProc:
+  Enabled: true
+Style/TernaryParentheses:
+  Enabled: true
+Style/TrailingBodyOnClass:
+  Enabled: true
+Style/TrailingBodyOnMethodDefinition:
+  Enabled: true
+Style/TrailingBodyOnModule:
+  Enabled: true
+Style/TrailingCommaInArguments:
+  Enabled: true
+Style/TrailingCommaInArrayLiteral:
+  Enabled: true
+Style/TrailingCommaInHashLiteral:
+  Enabled: true
+Style/TrailingMethodEndStatement:
+  Enabled: true
+Style/TrivialAccessors:
+  Enabled: true
+Style/UnlessElse:
+  Enabled: true
+Style/VariableInterpolation:
+  Enabled: true
+Style/WhenThen:
+  Enabled: true
+Style/WhileUntilDo:
+  Enabled: true
+Style/WhileUntilModifier:
+  Enabled: true
+Style/WordArray:
+  Enabled: true
+Style/YodaCondition:
+  Enabled: true
+Style/ZeroLengthPredicate:
+  Enabled: true
+
+# ─── Explicitly DISABLED: "too many lines" / size cops ────────────────────────
+# These complain about methods/blocks/modules/classes being too long. Game code
+# + mrbgem sugar intentionally has long methods and large files; these cops
+# would generate noise without catching real bugs. DisabledByDefault already
+# leaves Metrics off; these are explicit so they never fire even if that flag
+# is later flipped. (Note: Metrics/FileLength does not exist in RuboCop 1.88.)
+
+Metrics/MethodLength:
+  Enabled: false
+Metrics/BlockLength:
+  Enabled: false
+Metrics/ModuleLength:
+  Enabled: false
+Metrics/ClassLength:
+  Enabled: false
+
+# Other Metrics cops (complexity, not strictly "lines") — disabled too, since
+# they're in the same "your code is too big/complex" family.
+Metrics/AbcSize:
+  Enabled: false
+Metrics/CyclomaticComplexity:
+  Enabled: false
+Metrics/PerceivedComplexity:
+  Enabled: false
+Metrics/BlockNesting:
+  Enabled: false
+Metrics/ParameterLists:
+  Enabled: false
+Metrics/CollectionLiteralLength:
+  Enabled: false

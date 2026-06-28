@@ -1,0 +1,26 @@
+<rml>
+<head>
+    <link type="text/rcss" href="fx_overlay.rcss"/>
+</head>
+<body>
+    <div id="ovr-panel">
+        <div class="title">OVERLAY HUD</div>
+        <div class="note">click to toggle FX</div>
+        <div class="stage">game FX (world only)</div>
+        <div class="chk"><input type="checkbox" id="chk-warp" checked/><span class="lbl">warp (barrel)</span></div>
+        <div class="chk"><input type="checkbox" id="chk-aber" checked/><span class="lbl">colour shift (CA)</span></div>
+        <div class="chk"><input type="checkbox" id="chk-cmy" checked/><span class="lbl">colour shift (CMY)</span></div>
+        <div class="chk"><input type="checkbox" id="chk-scan" checked/><span class="lbl">scanlines</span></div>
+        <div class="chk"><input type="checkbox" id="chk-fxaa-game" checked/><span class="lbl">FXAA (world)</span></div>
+        <div class="chk"><input type="checkbox" id="chk-smaa-game"/><span class="lbl">SMAA (world)</span></div>
+        <div class="stage">top FX (all + hud)</div>
+        <div class="chk"><input type="checkbox" id="chk-vig" checked/><span class="lbl">vignette</span></div>
+        <div class="chk"><input type="checkbox" id="chk-gray" checked/><span class="lbl">grayscale</span></div>
+        <div class="chk"><input type="checkbox" id="chk-fxaa-ui" checked/><span class="lbl">FXAA (UI / all)</span></div>
+        <div class="chk"><input type="checkbox" id="chk-smaa-ui"/><span class="lbl">SMAA (UI / all)</span></div>
+        <div class="slider"><input type="range" id="rng-quality" min="0" max="1" step="0.05" value="0.6"/><span class="lbl">FXAA quality</span></div>
+        <div class="slider"><input type="range" id="rng-smaa" min="0" max="1" step="0.02" value="0.31"/><span class="lbl">SMAA threshold</span></div>
+        <div id="ovr-fps" class="value">FPS: --</div>
+    </div>
+</body>
+</rml>

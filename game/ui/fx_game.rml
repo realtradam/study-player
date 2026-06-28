@@ -1,0 +1,13 @@
+<rml>
+<head>
+    <link type="text/rcss" href="fx_game.rcss"/>
+</head>
+<body>
+    <div id="game-panel">
+        <div class="title">GAME LAYER</div>
+        <div class="note">in-world UI (3D-tilted)</div>
+        <div class="note">catches GAME shaders</div>
+        <div id="game-rot" class="value">rot 0.0</div>
+    </div>
+</body>
+</rml>

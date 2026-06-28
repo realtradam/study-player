@@ -1,0 +1,110 @@
+# RmlUi Ruby API signatures (hand-written from docs/API_SPEC_RMLUI.md).
+# Mirrors mrbgems/rmlui/mrblib/rmlui.rb.
+
+module Rml
+  def self._init: () -> void
+  def self.init: () -> void
+  def self._shutdown: () -> void
+  def self.shutdown: () -> void
+  def self._load_font: (String path, bool fallback) -> void
+  def self.load_font: (String path, ?fallback: bool) -> void
+end
+
+class Rml::Context
+  def initialize: (String name, ?width: Integer, ?height: Integer) -> void
+  def dimensions=: (Rl::Vector2) -> void
+  def resize: (Integer width, Integer height) -> void
+  def data_model: (String name) { (Rml::DataModel) -> void } -> Rml::DataModel
+  def load_document: (String path) ?{ (Rml::Document) -> void } -> Rml::Document
+  def document: (String id) -> Rml::Element?
+  def num_documents: () -> Integer
+  def process_input: () -> void
+  def update: () -> void
+  def render: () -> void
+  def frame: () { -> void } -> void
+end
+
+class Rml::Element
+  attr_reader ptr: untyped
+  def initialize: (untyped ptr) -> void
+  def []: (String name) -> String?
+  def []=: (String name, untyped v) -> void
+  def attribute: (String name) -> String?
+  def set_attribute: (String name, untyped v) -> Rml::Element
+  def has_attribute?: (String name) -> bool
+  def remove_attribute: (String name) -> Rml::Element
+  def id: () -> String
+  def id=: (String) -> void
+  def tag_name: () -> String
+  def inner_rml: () -> String
+  def inner_rml=: (String) -> void
+  def text: () -> String
+  def text=: (String) -> void
+  def set_class: (String name, bool on) -> Rml::Element
+  def add_class: (String name) -> Rml::Element
+  def remove_class: (String name) -> Rml::Element
+  def class_set?: (String name) -> bool
+  def set_property: (String name, String val) -> Rml::Element
+  def property: (String name) -> String
+  def remove_property: (String name) -> Rml::Element
+  def focus: () -> Rml::Element
+  def blur: () -> Rml::Element
+  def click: () -> Rml::Element
+  def scroll_into_view: (?bool align_top) -> Rml::Element
+  def visible?: () -> bool
+  def select_all: () -> Rml::Element
+  def set_selection_range: (Integer start, Integer finish) -> Rml::Element
+  def caret_end: () -> Rml::Element
+  def element: (String id) -> Rml::Element?
+  alias get_element_by_id element
+  def query_selector: (String sel) -> Rml::Element?
+  def query_selector_all: (String sel) -> Array[Rml::Element]
+  def elements_by_tag: (String tag) -> Array[Rml::Element]
+  def parent: () -> Rml::Element?
+  def child_count: () -> Integer
+  def child: (Integer i) -> Rml::Element?
+  def children: () -> Array[Rml::Element]
+  def owner_document: () -> Rml::Element?
+  def client_width: () -> Integer
+  def client_height: () -> Integer
+  def offset_left: () -> Integer
+  def offset_top: () -> Integer
+  def absolute_left: () -> Integer
+  def absolute_top: () -> Integer
+  def on: (Symbol type) ?{ (Rml::Event) -> void } -> Rml::Element
+end
+
+class Rml::Document < Rml::Element
+  def show: () -> Rml::Document
+  def hide: () -> Rml::Document
+  def close: () -> Rml::Document
+  def title: () -> String
+  def title=: (String) -> void
+  def pull_to_front: () -> Rml::Document
+  def push_to_back: () -> Rml::Document
+end
+
+class Rml::Event
+  def initialize: (untyped ptr) -> void
+  def type: () -> String
+  def target: () -> Rml::Element
+  def current: () -> Rml::Element
+  def stop_propagation: () -> void
+  def stop_immediate_propagation: () -> void
+  def []: (String key) -> Float
+  def param: (String key) -> Float
+  def param_str: (String key) -> String
+  def mouse_x: () -> Float
+  def mouse_y: () -> Float
+end
+
+class Rml::DataModel
+  def bind: (Symbol name) { -> untyped } -> Rml::DataModel
+  def value: (Symbol name, untyped initial) -> Rml::DataModel
+  def event: (Symbol name) ?{ (Rml::Event) -> void } -> Rml::DataModel
+  def finish: () -> Rml::DataModel
+  def dirty: (*Symbol names) -> Rml::DataModel
+  def dirty_all: () -> Rml::DataModel
+  def []: (String name) -> untyped
+  def []=: (String name, untyped v) -> void
+end

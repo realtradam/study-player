@@ -1,0 +1,13 @@
+{
+  "name": "raylib-jamstack-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node tooling for raylib-jamstack dev tools (agent-bridge relay, web screenshot capture). Not a shipped package — dev-only.",
+  "scripts": {
+    "relay": "node tools/agent-bridge/server.js",
+    "screenshot:web": "node tools/web_screenshot.js"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}

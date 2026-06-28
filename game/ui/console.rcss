@@ -1,0 +1,70 @@
+body {
+    font-family: Mononoki Nerd Font Mono;
+    font-size: 14px;
+    color: #cdd6f4;
+}
+
+#console_body {
+    display: block;
+}
+
+#console_body.hidden {
+    display: none;
+}
+
+#scrollback {
+    display: block;
+    overflow: auto;
+    width: 100%;
+    max-height: 280px;
+    padding: 8px 20px 8px 12px;
+    background-color: #11111bee;
+    border-width: 1px 1px 0 1px;
+    border-color: #45475a;
+    border-radius: 6px 6px 0 0;
+}
+
+#input_row {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background-color: #181825ee;
+    border-width: 1px;
+    border-color: #45475a;
+    border-radius: 0 0 6px 6px;
+}
+
+#prompt {
+    display: inline-block;
+    color: #a6e3a1;
+    margin-right: 8px;
+}
+
+#cmd_input {
+    display: inline-block;
+    width: 92%;
+    color: #cdd6f4;
+    caret-color: #f5e0dc;
+}
+
+.line {
+    display: block;
+    padding: 1px 0;
+    white-space: pre;
+}
+
+.line.cmd {
+    color: #89b4fa;
+}
+
+.line.result {
+    color: #a6e3a1;
+}
+
+.line.error {
+    color: #f38ba8;
+}
+
+.line.info {
+    color: #9399b2;
+}

@@ -1,0 +1,5 @@
+# Cloudflare Pages headers. Emscripten output filenames are stable across builds
+# (game.wasm etc.), so force revalidation to avoid serving a stale build. ETags
+# make this cheap (304 when unchanged). Copied to the static branch root on deploy.
+/*
+  Cache-Control: no-cache
