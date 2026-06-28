@@ -1,12 +1,66 @@
 <rml>
 <head>
-  <title>Study Player</title>
-  <link type="text/rcss" href="main.rcss"/>
+    <link type="text/rcss" href="main.rcss"/>
 </head>
-<body>
-  <!-- Phase 2: minimal document stub. Phase 5 renders player + splash here. -->
-  <div id="study-player-root">
-    <p>Study Player (Phase 2)</p>
-  </div>
+<body data-model="player">
+    <!-- ================================================================ -->
+    <!-- Splash view: shown when no file is loaded                       -->
+    <!-- ================================================================ -->
+    <div id="splash" data-if="!loaded">
+        <div id="splash-title">Study Player</div>
+        <div id="splash-sub">Drop an audio file or run with audio arg</div>
+        <div id="splash-hint">SPACE: start  M: study mode  ESC: quit</div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- Player view: shown when a file is loaded                        -->
+    <!-- ================================================================ -->
+    <div id="player" data-if="loaded">
+        <!-- Filename / title -->
+        <div id="title">{{file_name}}</div>
+
+        <!-- Progress bar area -->
+        <div id="progress-area">
+            <div id="elapsed">{{elapsed_str}}</div>
+            <div id="progress-bar-bg" data-event-click="seek_bar()">
+                <div id="progress-bar-fill"></div>
+            </div>
+            <div id="remaining">{{remain_str}}</div>
+            <div id="progress-pct">{{progress_pct}}%</div>
+        </div>
+
+        <!-- Status text: PLAYING / PAUSED -->
+        <div id="status" data-class-alert="status_alert">{{status_text}}</div>
+
+        <!-- Play / Pause button -->
+        <button id="btn-play-pause" data-event-click="toggle_play()">
+            <span id="icon-play" data-if="!playing">▶</span>
+            <span id="icon-pause" data-if="playing">❚❚</span>
+        </button>
+
+        <!-- Section navigation: prev / counter / next -->
+        <div id="section-nav">
+            <button id="btn-prev" data-event-click="prev_portion()">◀</button>
+            <div id="section-counter">{{portion_label}}</div>
+            <button id="btn-next" data-event-click="next_portion()">▶</button>
+        </div>
+
+        <!-- Smart Play hold button -->
+        <button id="btn-smart"
+                data-class-held="smart_play_held"
+                data-event-mousedown="smart_down()"
+                data-event-mouseup="smart_up()">Smart Play</button>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- Bottom bar: always visible (help text + study mode checkbox)     -->
+    <!-- ================================================================ -->
+    <div id="bottom-bar">
+        <div id="help-text">{{help_text}}</div>
+        <div id="study-mode-box">
+            <input type="checkbox" id="cb-study" data-value="study_mode"/>
+            <span id="study-label">Study Mode</span>
+        </div>
+    </div>
 </body>
 </rml>

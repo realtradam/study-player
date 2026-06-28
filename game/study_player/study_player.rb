@@ -777,7 +777,7 @@ module StudyPlayer
         next unless regions && regions.length >= 0
 
         # Resolve held-key overrides on this frame
-        smart_held = Rl.key_down?(:s)
+        smart_held = Rl.key_down?(:s) || (runtime.ui && runtime.ui.smart_play_held?)
         space_held = Rl.key_down?(:space)
 
         # Update smart_play_held in the component (for UI display)
@@ -823,6 +823,257 @@ module StudyPlayer
 end
 
 # =============================================================================
+# Class: UI — RmlUi wrapper (Phase 5: full RmlUi player UI)
+#
+# Creates the Rml::Context, data model, loads the document, and provides
+# per-frame sync from flecs state to the RmlUi data model.
+#
+# The data model is bound by name "player" in both the RML (data-model="player")
+# and here. Events from RML data-event-* attributes call back into this class,
+# which mutates flecs component state (seek_target, playing, study_mode, etc.).
+#
+# See: notes/study-player-rewrite-plan.md §6 (RmlUi UI structure)
+#      docs/API_SPEC_RMLUI.md (RmlUi API)
+#      .agents/knowledge/rmlui-binding.md (known quirks: left-not-right, FBO size)
+# =============================================================================
+
+module StudyPlayer
+  class UI
+    HELP_TEXT = "SPACE: play/pause  LEFT/RIGHT: ±5s  V/B: prev/next portion  S: hold override  M: study mode  0-9: jump  ESC: quit".freeze
+
+    attr_reader :context, :model, :doc
+
+    def initialize(runtime, components)
+      @runtime    = runtime
+      @comps      = components
+      @player_ent = runtime.player_entity
+      @smart_play_mouse_held = false
+
+      # --- RmlUi setup ---
+      Rml.load_font("game/ui/LatoLatin-Regular.ttf")
+      Rml.load_font("game/ui/LatoLatin-Bold.ttf")
+      Rml.load_font("game/ui/MononokiNerdFontMono-Regular.ttf")
+
+      @context = Rml::Context.new("study-player")
+      @model   = build_model
+      @doc     = @context.load_document("game/study_player/ui/main.rml")
+      @doc.show
+    end
+
+    def smart_play_held?
+      @smart_play_mouse_held
+    end
+
+    def sync
+      @model.dirty_all
+
+      # Update progress bar fill width directly (data-style can't handle
+      # "width: {{var}}" syntax — it parses the property name as a variable).
+      fill_el = @doc.element("progress-bar-fill")
+      if fill_el
+        pb = @player_ent.get(@comps[:playback_state])
+        af = @player_ent.get(@comps[:audio_file])
+        if pb && af[:duration] > 0
+          ratio = StudyPlayer::Core.time_to_ratio(pb[:current_time], af[:duration])
+          fill_el.set_property("width", "#{(ratio * 100.0).round(1)}%")
+        end
+      end
+    end
+
+    def process_input
+      @context.process_input
+    end
+
+    def render
+      @context.update
+      @context.render
+    end
+
+    private
+
+    def build_model
+      ctx = @context
+      af_c = @comps[:audio_file]
+      pb_c = @comps[:playback_state]
+      ss_c = @comps[:study_state]
+      pe   = @player_ent
+      rt   = @runtime
+
+      ctx.data_model("player") do |m|
+        # -- One-way computed bindings --
+        m.bind(:loaded) do
+          pb = pe.get(pb_c)
+          pb && pb[:loaded] ? true : false
+        end
+
+        m.bind(:file_name) do
+          af = pe.get(af_c)
+          path = af[:path].to_s
+          path.empty? ? "" : File.basename(path)
+        end
+
+        m.bind(:elapsed_str) do
+          pb = pe.get(pb_c)
+          Core.format_time(pb ? pb[:current_time] : 0.0)
+        end
+
+        m.bind(:total_str) do
+          af = pe.get(af_c)
+          Core.format_time(af[:duration])
+        end
+
+        m.bind(:remain_str) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          rem = (af[:duration] - (pb ? pb[:current_time] : 0.0))
+          rem = 0.0 if rem < 0.0
+          Core.format_time(rem)
+        end
+
+        m.bind(:progress_pct) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          dur = af[:duration]
+          if dur > 0 && pb
+            (Core.time_to_ratio(pb[:current_time], dur) * 100.0).to_i
+          else
+            0
+          end
+        end
+
+        m.bind(:progress_ratio) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          dur = af[:duration]
+          ratio = (dur > 0 && pb) ? Core.time_to_ratio(pb[:current_time], dur) : 0.0
+          "#{(ratio * 100.0).round(1)}%"
+        end
+
+        m.bind(:status_text) do
+          pb = pe.get(pb_c)
+          (pb && pb[:playing]) ? "PLAYING" : "PAUSED"
+        end
+
+        m.bind(:status_alert) do
+          pb = pe.get(pb_c)
+          ss = pe.get(ss_c)
+          (pb && pb[:playing] && ss && ss[:was_in_silence]) ? true : false
+        end
+
+        m.bind(:playing) do
+          pb = pe.get(pb_c)
+          pb && pb[:playing] ? true : false
+        end
+
+        m.bind(:portion_label) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          regions = rt.silence_regions
+          dur = af[:duration]
+          if pb && regions && regions.length >= 0 && dur > 0
+            pos_norm = Core.time_to_ratio(pb[:current_time], dur)
+            current  = Core.current_speaking_portion(regions, pos_norm)
+            total    = Core.total_speaking_portions(regions)
+            "#{current + 1}/#{total}"
+          else
+            "-/-"
+          end
+        end
+
+        m.bind(:smart_play_held) do
+          @smart_play_mouse_held
+        end
+
+        m.bind(:help_text) { HELP_TEXT }
+
+        # -- Two-way values --
+        m.value(:study_mode, false)
+
+        # -- Controller events --
+        m.event(:toggle_play) do
+          pb = pe.get(pb_c)
+          next unless pb
+          if pb[:loaded]
+            if pb[:playing]
+              rt.audio.pause
+              pb[:playing] = false
+            else
+              rt.audio.resume
+              pb[:playing] = true
+            end
+            pe.set(pb_c, pb)
+          end
+        end
+
+        m.event(:prev_portion) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          regions = rt.silence_regions
+          dur = af[:duration]
+          next unless pb && pb[:loaded] && regions && dur > 0
+          pos_norm = Core.time_to_ratio(pb[:current_time], dur)
+          current  = Core.current_speaking_portion(regions, pos_norm)
+          prev_portion = current - 1
+          prev_portion = 0 if prev_portion < 0
+          target = Core.portion_seek_target(dur, regions, prev_portion)
+          pb[:seek_target]  = target
+          pb[:seek_pending] = true
+          pe.set(pb_c, pb)
+        end
+
+        m.event(:next_portion) do
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          regions = rt.silence_regions
+          dur = af[:duration]
+          next unless pb && pb[:loaded] && regions && dur > 0
+          pos_norm = Core.time_to_ratio(pb[:current_time], dur)
+          current  = Core.current_speaking_portion(regions, pos_norm)
+          total    = Core.total_speaking_portions(regions)
+          np = current + 1
+          np = total - 1 if np >= total
+          target = Core.portion_seek_target(dur, regions, np)
+          pb[:seek_target]  = target
+          pb[:seek_pending] = true
+          pe.set(pb_c, pb)
+        end
+
+        m.event(:smart_down) do
+          @smart_play_mouse_held = true
+          pb = pe.get(pb_c)
+          if pb && pb[:loaded] && !pb[:playing]
+            rt.audio.resume
+            pb[:playing] = true
+            pe.set(pb_c, pb)
+          end
+        end
+
+        m.event(:smart_up) do
+          @smart_play_mouse_held = false
+        end
+
+        m.event(:seek_bar) do |ev|
+          pb = pe.get(pb_c)
+          af = pe.get(af_c)
+          dur = af[:duration]
+          next unless pb && pb[:loaded] && dur > 0
+
+          el = ev.current
+          if el
+            x     = ev.mouse_x - el.absolute_left
+            ratio = (x.to_f / el.client_width).clamp(0.0, 1.0)
+            target = Core.ratio_to_seek(ratio, dur)
+            pb[:seek_target]  = target
+            pb[:seek_pending] = true
+            pe.set(pb_c, pb)
+          end
+        end
+      end
+    end
+  end
+end
+
+# =============================================================================
 # Composition Root — init, components, systems, main loop
 # =============================================================================
 
@@ -832,13 +1083,14 @@ module StudyPlayer
 
   # Runtime: owns non-serializable handles (Rl::Music) and the flecs world.
   class Runtime
-    attr_accessor :world, :player_entity, :audio, :components
+    attr_accessor :world, :player_entity, :audio, :components, :ui
     attr_accessor :silence_regions, :raw_silence_regions, :analysis_done
     def initialize(world:, player_entity:, audio:, components:)
       @world = world
       @player_entity = player_entity
       @audio = audio
       @components = components
+      @ui = nil
       @silence_regions = []
       @raw_silence_regions = []
       @analysis_done = false
@@ -849,6 +1101,7 @@ module StudyPlayer
     Rl.init_window(SCREEN_W, SCREEN_H, "Study Player")
     Rl.target_fps = 60
     Rl.init_audio_device
+    Rml.init
 
     # --- Flecs world + components ---
     world = Flecs::World.new
@@ -878,6 +1131,10 @@ module StudyPlayer
       audio: audio,
       components: comps,
     )
+
+    # --- RmlUi UI ---
+    ui = UI.new(runtime, comps)
+    runtime.ui = ui
 
     # --- Register systems ---
     LoadSystem.build(world, player_entity, runtime, af, pb, nl)
@@ -915,8 +1172,12 @@ module StudyPlayer
         .add(nl)
     end
 
-    # --- Main loop ---
+    # --- Main loop (RmlUi rendering) ---
     Rl.while_window_open do
+      # Process RmlUi input (mouse clicks, text) before ECS systems so
+      # UI events fire and update flecs state this frame.
+      ui.process_input
+
       dt = Rl.frame_time
 
       # Check for quit
@@ -925,121 +1186,23 @@ module StudyPlayer
         break
       end
 
-      # Run ECS systems
+      # Run ECS systems (keyboard input, seek, update, study)
       world.progress(dt)
 
-      # --- Draw: minimal on-screen status for Phase 2 verification ---
+      # Sync UI data model from updated flecs state
+      ui.sync
+
+      # Read back two-way study_mode value from the checkbox
+      ss_current = player_entity.get(ss)
+      model_study = ui.model[:study_mode]
+      if ss_current && ss_current[:study_mode] != model_study
+        ss_current[:study_mode] = model_study
+        player_entity.set(ss, ss_current)
+      end
+
+      # Render: RmlUi draws on top of the deep-slate background
       Rl.draw(clear_color: Rl::Color.new(26, 26, 46, 255)) do
-        pb_current = player_entity.get(pb)
-        af_current = player_entity.get(af)
-
-        if pb_current && pb_current[:loaded]
-          # Player view: show filename + time + play state
-          duration   = af_current[:duration]
-          pos        = pb_current[:current_time]
-          playing    = pb_current[:playing]
-          skip_ct    = pb_current[:skip_auto_update]
-          seeking    = pb_current[:seek_pending]
-          path       = af_current[:path].to_s
-
-          # Filename (basename only)
-          fname = File.basename(path)
-          elapsed_str = Core.format_time(pos)
-          total_str   = Core.format_time(duration)
-          ratio       = Core.time_to_ratio(pos, duration)
-
-          state_str = if seeking
-                        "SEEKING..."
-                      elsif skip_ct > 0
-                        "SEEK SETTLE (#{skip_ct})"
-                      elsif playing
-                        "PLAYING"
-                      else
-                        "PAUSED"
-                      end
-
-          # Title
-          Rl.draw_text(text: fname,
-                       x: SCREEN_W / 2 - 200, y: 260, font_size: 24,
-                       color: Rl::Color.new(234, 234, 234, 255))
-
-          # Time display
-          time_text = "#{elapsed_str} / #{total_str}"
-          Rl.draw_text(text: time_text,
-                       x: SCREEN_W / 2 - 150, y: 310, font_size: 40,
-                       color: Rl::Color.new(200, 200, 210, 255))
-
-          # Progress bar (simple rects)
-          bar_x = 100; bar_y = 380; bar_w = SCREEN_W - 200; bar_h = 12
-          Rl.draw_rectangle(bar_x, bar_y, bar_w, bar_h, Rl::Color.new(40, 40, 60, 255))
-          Rl.draw_rectangle(bar_x, bar_y, (bar_w * ratio).to_i, bar_h,
-                            Rl::Color.new(233, 69, 96, 255))
-
-          # Play state
-          Rl.draw_text(text: state_str,
-                       x: SCREEN_W / 2 - 60, y: 420, font_size: 18,
-                       color: playing ? Rl::Color.new(100, 200, 100, 255) : Rl::Color.new(200, 100, 100, 255))
-
-          # --- Phase 3: Section counter (speaking portion N / total) ---
-          regions = runtime.silence_regions
-          if regions && regions.length >= 0 && duration > 0
-            pos_norm = StudyPlayer::Core.time_to_ratio(pos, duration)
-            current_port = StudyPlayer::Core.current_speaking_portion(regions, pos_norm)
-            total_port   = StudyPlayer::Core.total_speaking_portions(regions)
-            section_text = "#{current_port + 1}/#{total_port}"
-            Rl.draw_text(text: section_text,
-                         x: SCREEN_W / 2 - 30, y: 450, font_size: 24,
-                         color: Rl::Color.new(255, 200, 100, 255))
-          end
-
-          # --- Phase 4: Study mode indicator + smart play status ---
-          ss_current = player_entity.get(ss)
-          study_on = ss_current && ss_current[:study_mode]
-          smart_h  = ss_current && ss_current[:smart_play_held]
-          in_sil   = ss_current && ss_current[:was_in_silence]
-
-          # Study mode indicator (top-right)
-          mode_text = study_on ? "STUDY MODE: ON" : "STUDY MODE: OFF"
-          mode_color = study_on ? Rl::Color.new(100, 255, 100, 255) : Rl::Color.new(150, 150, 150, 255)
-          Rl.draw_text(text: mode_text,
-                       x: SCREEN_W - 220, y: 20, font_size: 18,
-                       color: mode_color)
-
-          # Smart play / hold indicator
-          if smart_h
-            Rl.draw_text(text: "S: SMART PLAY (HELD — auto-pause suppressed)",
-                         x: SCREEN_W - 420, y: 50, font_size: 14,
-                         color: Rl::Color.new(255, 255, 100, 255))
-          end
-          if in_sil && study_on
-            Rl.draw_text(text: "[IN SILENCE REGION]",
-                         x: SCREEN_W / 2 - 70, y: 480, font_size: 16,
-                         color: Rl::Color.new(255, 100, 100, 255))
-          end
-
-          # Controls help (updated for Phase 4)
-          Rl.draw_text(text: "SPACE: play/pause  LEFT/RIGHT: -5s/+5s  V/B: prev/next portion  S: hold to override  M: study mode  ESC: quit",
-                       x: 20, y: SCREEN_H - 60, font_size: 14,
-                       color: Rl::Color.new(120, 120, 140, 255))
-
-          # Debug: skip_auto_update counter
-          if skip_ct > 0
-            Rl.draw_text(text: "seek cooldown: #{skip_ct}",
-                         x: 20, y: SCREEN_H - 90, font_size: 12,
-                         color: Rl::Color.new(200, 200, 60, 255))
-          end
-        else
-          # Splash: no file loaded
-          Rl.draw_text(text: "Study Player",
-                       x: SCREEN_W / 2 - 180, y: 260, font_size: 60,
-                       color: Rl::Color.new(234, 234, 234, 255))
-          Rl.draw_text(text: "Drop an audio file or run with: game study_player.rb <audio.mp3>",
-                       x: SCREEN_W / 2 - 330, y: 380, font_size: 18,
-                       color: Rl::Color.new(233, 69, 96, 255))
-          Rl.draw_text(text: "SPACE: start  M: study mode  ESC: quit",
-                       x: SCREEN_W / 2 - 130, y: 430, font_size: 16,
-                       color: Rl::Color.new(120, 120, 140, 255))
-        end
+        ui.render
       end
     end
 
