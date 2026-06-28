@@ -17,6 +17,10 @@ module Rl
     backspace: :KEY_BACKSPACE, up: :KEY_UP, down: :KEY_DOWN, left: :KEY_LEFT,
     right: :KEY_RIGHT, left_shift: :KEY_LEFT_SHIFT, left_control: :KEY_LEFT_CONTROL
   }.each { |sym, const| SYMBOL_KEYS[sym] = const_get(const) if const_defined?(const) }
+  # Function keys F1-F12 (raylib keycodes 290-301). Added so :f2 etc. resolve —
+  # the KEY_F* constants aren't all exposed to mruby, so use the int values.
+  { f1: 290, f2: 291, f3: 292, f4: 293, f5: 294, f6: 295, f7: 296, f8: 297,
+    f9: 298, f10: 299, f11: 300, f12: 301 }.each { |sym, kc| SYMBOL_KEYS[sym] = kc }
 
   class << self
     def resolve_key(key)
