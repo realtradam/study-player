@@ -62,5 +62,28 @@
             <span id="study-label">Study Mode</span>
         </div>
     </div>
+
+    <!-- ================================================================ -->
+    <!-- Settings panel overlay (Phase 6) — F2 to toggle                 -->
+    <!-- ================================================================ -->
+    <div id="settings-overlay" data-if="settings_visible">
+        <div id="settings-panel">
+            <div id="settings-title">⚙ Settings</div>
+            <div id="settings-controls">
+                <div id="settings-row">
+                    <span id="settings-label">Font Scale:</span>
+                    <button class="settings-btn" data-event-click="font_down()">−</button>
+                    <span id="settings-val">{{font_scale_display}}</span>
+                    <button class="settings-btn" data-event-click="font_up()">+</button>
+                </div>
+                <div id="settings-row">
+                    <span id="settings-label">Volume:</span>
+                    <button class="settings-btn" data-event-click="vol_down()">−</button>
+                    <span id="settings-val">{{volume_display}}</span>
+                    <button class="settings-btn" data-event-click="vol_up()">+</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </rml>

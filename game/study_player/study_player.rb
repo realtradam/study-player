@@ -986,6 +986,23 @@ module StudyPlayer
 
         m.bind(:help_text) { HELP_TEXT }
 
+        # -- Phase 6: Settings panel bindings --
+        m.bind(:settings_visible) do
+          rt.settings_visible
+        end
+
+        m.bind(:font_scale_display) do
+          cfg = rt.config
+          s = cfg[:font_scale] || 1.0
+          "#{s.round(1)}x"
+        end
+
+        m.bind(:volume_display) do
+          cfg = rt.config
+          v = cfg[:volume] || 1.0
+          "#{(v * 100).round}%"
+        end
+
         # -- Two-way values --
         m.value(:study_mode, false)
 
@@ -1068,7 +1085,292 @@ module StudyPlayer
             pe.set(pb_c, pb)
           end
         end
+
+        # -- Phase 6: Settings panel events --
+        m.event(:font_up) do
+          s = (rt.config[:font_scale] || 1.0) + 0.1
+          s = 3.0 if s > 3.0
+          s = s.round(1)
+          rt.config[:font_scale] = s
+          StudyPlayer::Layout.apply_font_scale(rt.ui.doc, s)
+          Config.save(rt.config)
+        end
+
+        m.event(:font_down) do
+          s = (rt.config[:font_scale] || 1.0) - 0.1
+          s = 0.5 if s < 0.5
+          s = s.round(1)
+          rt.config[:font_scale] = s
+          StudyPlayer::Layout.apply_font_scale(rt.ui.doc, s)
+          Config.save(rt.config)
+        end
+
+        m.event(:vol_up) do
+          v = (rt.config[:volume] || 1.0) + 0.1
+          v = 1.0 if v > 1.0
+          v = v.round(1)
+          rt.config[:volume] = v
+          rt.audio.volume = v
+          Config.save(rt.config)
+        end
+
+        m.event(:vol_down) do
+          v = (rt.config[:volume] || 1.0) - 0.1
+          v = 0.0 if v < 0.0
+          v = v.round(1)
+          rt.config[:volume] = v
+          rt.audio.volume = v
+          Config.save(rt.config)
+        end
       end
+    end
+  end
+end
+
+# =============================================================================
+# Module: Config — Key-value config persistence (Phase 6)
+#
+# Loads/saves study-player.cfg in the current working directory.
+# Persists: window size, study mode default, volume, last audio path,
+# font scale, and layout overrides.
+#
+# See: notes/study-player-rewrite-plan.md §9 (layout persistence)
+#      game/study_player/config.rb (canonical source; this is the inline copy)
+# =============================================================================
+
+module StudyPlayer
+  module Config
+    CFG_FILE = "study-player.cfg".freeze
+
+    DEFAULTS = {
+      window_width:        1280,
+      window_height:       720,
+      study_mode_default:  false,
+      volume:              1.0,
+      last_audio_path:     "",
+      font_scale:          1.0,
+    }.freeze
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def self.load
+      cfg = DEFAULTS.dup
+      path = config_path
+      return cfg unless File.exist?(path)
+
+      begin
+        File.open(path, "r") do |f|
+          f.each_line do |line|
+            line = line.strip
+            next if line.empty? || line.start_with?("#")
+
+            key, val = line.split("=", 2)
+            next unless key && val
+
+            key_sym = key.strip.to_sym
+            val_str = val.strip
+            cfg[key_sym] = parse_value(key_sym, val_str)
+          end
+        end
+      rescue
+      end
+
+      cfg
+    end
+
+    def self.save(settings)
+      begin
+        File.open(config_path, "w") do |f|
+          f.puts "# Study Player config"
+          settings.each do |key, val|
+            val_s = format_value(val)
+            f.puts "#{key}=#{val_s}"
+          end
+        end
+        true
+      rescue
+        false
+      end
+    end
+
+    def self.config_path
+      File.expand_path(CFG_FILE)
+    end
+
+    # ------------------------------------------------------------------
+    # Value parsing / formatting
+    # ------------------------------------------------------------------
+
+    def self.parse_value(key, str)
+      case key
+      when :window_width, :window_height
+        str.to_i
+      when :volume, :font_scale
+        str.to_f
+      when :study_mode_default
+        str == "true" || str == "1"
+      else
+        f = str.to_f
+        (f.to_i == f) ? f.to_i : f
+      end
+    end
+
+    def self.format_value(val)
+      case val
+      when Float
+        s = format("%.2f", val)
+        s = s.sub(/\.?0+$/, "")
+        s
+      when TrueClass
+        "true"
+      when FalseClass
+        "false"
+      when Integer
+        val.to_s
+      else
+        val.to_s
+      end
+    end
+  end
+end
+
+# =============================================================================
+# Module: Layout — RmlUi element property overrides from config (Phase 6)
+#
+# Maps config keys (matching the original UILayout C struct field names) to
+# RmlUi element IDs + property names. Applied via Element#set_property after
+# the document loads.
+#
+# Decision on drag-to-reposition (P4):
+#   The original C app had per-pixel drag-to-reposition via raygui hit-testing.
+#   In the RmlUi rewrite, this is DEFERRED because:
+#   1. RmlUi layouts are declarative (RCSS); inline style mutations
+#      fight the cascade and are fragile.
+#   2. RCSS already provides a single source of layout truth.
+#   3. For a music player, the value of per-element pixel drag is marginal
+#      compared to a few meaningful tunables (font scale, volume).
+#   4. Coordinate translation between RmlUi events and the raylib FBO backend
+#      is known-scar-tissue (see .agents/knowledge/rmlui-binding.md §FBO).
+#   The adapted approach: config-file overrides + an in-app settings panel
+#   (F2) for font scale and volume. RCSS remains the source of truth.
+#
+# See: game/study_player/layout.rb (canonical source; this is the inline copy)
+# =============================================================================
+
+module StudyPlayer
+  module Layout
+    # Mapping from config key (Symbol) → [element_id, property_name, unit_suffix]
+    LAYOUT_MAP = {
+      # Title
+      title_top:        ["title",            "top",    "px"],
+      title_left:       ["title",            "left",   "px"],
+      title_width:      ["title",            "width",  "px"],
+      title_font_size:  ["title",            "font-size", "px"],
+
+      # Progress bar background
+      bar_top:          ["progress-bar-bg",  "top",    "px"],
+      bar_left:         ["progress-bar-bg",  "left",   "px"],
+      bar_width:        ["progress-bar-bg",  "width",  "px"],
+      bar_height:       ["progress-bar-bg",  "height", "px"],
+
+      # Elapsed time label
+      elapsed_top:      ["elapsed",          "top",    "px"],
+      elapsed_left:     ["elapsed",          "left",   "px"],
+
+      # Remaining time label
+      remaining_top:    ["remaining",        "top",    "px"],
+      remaining_left:   ["remaining",        "left",   "px"],
+
+      # Progress percentage
+      pct_top:          ["progress-pct",     "top",    "px"],
+
+      # Status text
+      status_top:       ["status",           "top",    "px"],
+      status_font_size: ["status",           "font-size", "px"],
+
+      # Play/pause button
+      btn_play_top:     ["btn-play-pause",   "top",    "px"],
+      btn_play_left:    ["btn-play-pause",   "left",   "px"],
+      btn_play_size:    ["btn-play-pause",   "width",  "px"],
+
+      # Portion navigation
+      sec_nav_top:      ["section-counter",  "top",    "px"],
+      sec_nav_left:     ["section-counter",  "left",   "px"],
+      btn_prev_top:     ["btn-prev",         "top",    "px"],
+      btn_prev_left:    ["btn-prev",         "left",   "px"],
+      btn_next_top:     ["btn-next",         "top",    "px"],
+      btn_next_left:    ["btn-next",         "left",   "px"],
+
+      # Smart Play button
+      smart_play_top:   ["btn-smart",        "top",    "px"],
+      smart_play_left:  ["btn-smart",        "left",   "px"],
+
+      # Help text
+      help_top:         ["help-text",        "top",    "px"],
+      help_left:        ["help-text",        "left",   "px"],
+
+      # Study mode checkbox
+      study_box_top:    ["study-mode-box",   "top",    "px"],
+      study_box_left:   ["study-mode-box",   "left",   "px"],
+    }.freeze
+
+    # Element IDs that use "width" and "height" in sync (square elements).
+    SYNC_SIZE_IDS = {
+      btn_play_size: ["btn-play-pause", "width", "height"],
+    }.freeze
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    # Apply layout overrides from a config hash to the loaded RmlUi document.
+    def self.apply(doc, settings)
+      return unless doc
+
+      settings.each do |key, value|
+        next unless value
+
+        # Check for sync-size keys first
+        if (sync = SYNC_SIZE_IDS[key])
+          el_id, prop_w, prop_h = sync
+          el = doc.element(el_id)
+          next unless el
+          v_str = "#{value}px"
+          el.set_property(prop_w, v_str)
+          el.set_property(prop_h, v_str)
+          next
+        end
+
+        map_entry = LAYOUT_MAP[key]
+        next unless map_entry
+
+        el_id, prop, unit = map_entry
+        el = doc.element(el_id)
+        next unless el
+
+        v_str = "#{value}#{unit}"
+        el.set_property(prop, v_str)
+      end
+    end
+
+    # Apply font_scale to the root element via a global style override.
+    # Since RmlUi body font-size cascades, we set it on the document root.
+    def self.apply_font_scale(doc, scale)
+      return unless doc
+      return if scale <= 0 || scale > 5.0
+
+      base = 18  # matches main.rcss body font-size
+      new_size = (base * scale).round
+      new_size = 10 if new_size < 10
+      new_size = 96 if new_size > 96
+
+      # Try to find a body or root element
+      root = doc.element("body") || doc.element("__body__")
+      return unless root
+
+      root.set_property("font-size", "#{new_size}px")
     end
   end
 end
@@ -1082,9 +1384,11 @@ module StudyPlayer
   SCREEN_H = 720
 
   # Runtime: owns non-serializable handles (Rl::Music) and the flecs world.
+  # Phase 6: +config holding the loaded Config settings.
   class Runtime
     attr_accessor :world, :player_entity, :audio, :components, :ui
     attr_accessor :silence_regions, :raw_silence_regions, :analysis_done
+    attr_accessor :config, :settings_visible
     def initialize(world:, player_entity:, audio:, components:)
       @world = world
       @player_entity = player_entity
@@ -1094,11 +1398,20 @@ module StudyPlayer
       @silence_regions = []
       @raw_silence_regions = []
       @analysis_done = false
+      @config = {}
+      @settings_visible = false
     end
   end
 
   def self.run
-    Rl.init_window(SCREEN_W, SCREEN_H, "Study Player")
+    # --- Phase 6: Load config before window creation ---
+    cfg = Config.load
+    win_w = cfg[:window_width]  || SCREEN_W
+    win_h = cfg[:window_height] || SCREEN_H
+    win_w = 640  if win_w < 640
+    win_h = 480  if win_h < 480
+
+    Rl.init_window(win_w, win_h, "Study Player")
     Rl.target_fps = 60
     Rl.init_audio_device
     Rml.init
@@ -1131,10 +1444,29 @@ module StudyPlayer
       audio: audio,
       components: comps,
     )
+    runtime.config = cfg
 
     # --- RmlUi UI ---
     ui = UI.new(runtime, comps)
     runtime.ui = ui
+
+    # --- Phase 6: Apply layout overrides from config ---
+    Layout.apply(ui.doc, cfg)
+    Layout.apply_font_scale(ui.doc, cfg[:font_scale] || 1.0)
+
+    # --- Phase 6: Apply study_mode_default from config ---
+    if cfg[:study_mode_default]
+      ss_current = player_entity.get(ss)
+      if ss_current
+        ss_current[:study_mode] = true
+        player_entity.set(ss, ss_current)
+      end
+    end
+
+    # --- Phase 6: Apply volume from config ---
+    if cfg[:volume] && cfg[:volume] != 1.0
+      audio.volume = cfg[:volume]
+    end
 
     # --- Register systems ---
     LoadSystem.build(world, player_entity, runtime, af, pb, nl)
@@ -1186,6 +1518,11 @@ module StudyPlayer
         break
       end
 
+      # --- Phase 6: Settings panel toggle (F2) ---
+      if Rl.key_pressed?(:f2)
+        runtime.settings_visible = !runtime.settings_visible
+      end
+
       # Run ECS systems (keyboard input, seek, update, study)
       world.progress(dt)
 
@@ -1206,7 +1543,22 @@ module StudyPlayer
       end
     end
 
-    # --- Shutdown ---
+    # --- Shutdown (Phase 6: save config) ---
+    # Save current state to config before shutting down
+    begin
+      pb_data = player_entity.get(pb)
+      if pb_data && pb_data[:loaded]
+        af_data = player_entity.get(af)
+        cfg[:last_audio_path] = af_data[:path].to_s if af_data
+      end
+      ss_data = player_entity.get(ss)
+      cfg[:study_mode_default] = ss_data[:study_mode] if ss_data
+      cfg[:window_width]  = Rl.screen_width
+      cfg[:window_height] = Rl.screen_height
+      Config.save(cfg)
+    rescue
+    end
+
     audio.unload if audio.loaded?
     Rl.close_audio_device
   end
