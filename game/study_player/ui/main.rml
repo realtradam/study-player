@@ -1,0 +1,12 @@
+<rml>
+<head>
+  <title>Study Player</title>
+  <link type="text/rcss" href="main.rcss"/>
+</head>
+<body>
+  <!-- Phase 2: minimal document stub. Phase 5 renders player + splash here. -->
+  <div id="study-player-root">
+    <p>Study Player (Phase 2)</p>
+  </div>
+</body>
+</rml>

@@ -1,0 +1,17 @@
+/* Phase 2: minimal stylesheet stub. Phase 5 adds the full UI. */
+body {
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+}
+
+#study-player-root {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  color: #eaeaee;
+  font-size: 24;
+  text-align: center;
+}

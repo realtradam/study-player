@@ -68,6 +68,25 @@ rl_update_texture(mrb_state *mrb, mrb_value self)
   return mrb_nil_value();
 }
 
+/*
+ * FilePathList#path_at(index) -> String | nil
+ *
+ * Returns the path at the given index. The generated FilePathList struct
+ * wrapper only exposes `count`/`count=`; the `paths` member (char**) is
+ * a raw pointer the generator skips. This hand-written method provides
+ * indexed access for the drag-drop fallback in study-player Phase 2.
+ */
+static mrb_value
+rl_fl_path_at(mrb_state *mrb, mrb_value self)
+{
+  mrb_int idx;
+  mrb_get_args(mrb, "i", &idx);
+  FilePathList *fl = (FilePathList *)DATA_PTR(self);
+  if (!fl || !fl->paths || idx < 0 || idx >= (mrb_int)fl->count)
+    return mrb_nil_value();
+  return mrb_str_new_cstr(mrb, fl->paths[idx]);
+}
+
 static mrb_value
 rl_is_web(mrb_state *mrb, mrb_value self)
 {
@@ -118,6 +137,12 @@ mrb_raylib_gem_init(mrb_state *mrb)
   mrb_define_module_function(mrb, rl, "update_texture", rl_update_texture, MRB_ARGS_REQ(2));
   mrb_define_module_function(mrb, rl, "smaa_area_bytes", rl_smaa_area_bytes, MRB_ARGS_NONE());
   mrb_define_module_function(mrb, rl, "smaa_search_bytes", rl_smaa_search_bytes, MRB_ARGS_NONE());
+
+  /* FilePathList#path_at: indexed access to dropped file paths (generator skips char**). */
+  {
+    struct RClass *flc = mrb_class_get_under(mrb, rl, "FilePathList");
+    mrb_define_method(mrb, flc, "path_at", rl_fl_path_at, MRB_ARGS_REQ(1));
+  }
 }
 
 void

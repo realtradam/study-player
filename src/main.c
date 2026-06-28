@@ -12,6 +12,7 @@
 #include <mruby.h>
 #include <mruby/compile.h>
 #include <mruby/string.h>
+#include <mruby/array.h>     /* mrb_ary_new / mrb_ary_push (ARGV) */
 #include <mruby/variable.h>  /* mrb_const_get (web eval entry) */
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -173,6 +174,15 @@ main(int argc, char **argv)
 
   g_mrb = mrb;
   jamstack_bridge_init(mrb);
+
+  /* Expose argv[2..] as Ruby ARGV constant (Phase 2: study-player audio file). */
+  {
+    mrb_value argv_ary = mrb_ary_new(mrb);
+    for (int i = 2; i < argc; i++) {
+      mrb_ary_push(mrb, argv_ary, mrb_str_new_cstr(mrb, argv[i]));
+    }
+    mrb_define_const(mrb, mrb->object_class, "ARGV", argv_ary);
+  }
 
   size_t len = 0;
   char *src = read_file(script, &len);
