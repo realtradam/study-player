@@ -95,3 +95,18 @@ the lighter levels reach more changes is the whole point of the runtime work.
 | **NDJSON** | Newline-delimited JSON — one JSON object per line — the log/stream format (greppable, tailable). | JSON Lines (use NDJSON here), "log format" |
 | **ring buffer** | In-memory last-N log entries, queryable via eval (`Log.tail`, `Log.grep`). | log cache, history buffer |
 | **mutate vs observe** | P5: agents **mutate** behaviour by editing Ruby / hot-reloading (write path); they **observe** state via `.live/` + logs (read path). Keep the two paths distinct. | "read/write the game" (be specific which path) |
+
+## Study Player (planned)
+
+| Term | Definition | Aliases to avoid |
+|---|---|---|
+| **study mode** | Boolean toggle (`StudyState.study_mode`). When ON, auto-pause logic runs while playback is inside silence boundaries. | auto-pause mode, learning mode |
+| **speaking portion** | A contiguous segment of meaningful audio between two silence regions; numbered 0-based. | section, segment, clip, part |
+| **silence region** | A detected gap in the audio where amplitude stays below threshold for at least `min_duration`. Stored normalized (0–1). | gap, pause, quiet zone |
+| **raw silence gap** | A silence interval returned by `StudyAudio.raw_silence_regions`, before the 0.25s padding is applied. | raw gap, un-shrunk silence |
+| **padding zone** | The first 0.25s of a speaking portion, treated as safe headroom so auto-pause does not trigger during normal pauses. | grace period, buffer zone |
+| **auto-pause** | The study-mode mechanism that pauses playback when entering or exiting a silence boundary. | auto-stop, silence break |
+| **smart play** | Hold-to-override button/input that suppresses auto-pause while held. | hold play, override button |
+| **section counter** | UI label showing current speaking portion and total, e.g. `"12/70"`. | portion label, counter |
+| **non-blocking seek** | The `skip_auto_update` pattern: after a seek, skip N frames of current-time sampling so the audio engine catches up. | seek delay, seek cooldown |
+| **seek cooldown** | The integer `PlaybackState.skip_auto_update` counter that implements non-blocking seek. | skip frames, seek settle |
