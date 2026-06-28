@@ -30,6 +30,9 @@ MRuby::Build.new do |conf|
   conf.gem File.join(STACK_ROOT, 'mrbgems', 'flecs')
   # Our Jolt (3D physics) bindings (C over the joltc C API + mrblib Ruby sugar).
   conf.gem File.join(STACK_ROOT, 'mrbgems', 'jolt')
+  # Study-audio native helper: extracts raw float samples from audio files
+  # via raylib's Wave API for the pure-Ruby silence detector.
+  conf.gem File.join(STACK_ROOT, 'mrbgems', 'study_audio')
 
   conf.enable_test if ENV['JAMSTACK_TEST']
 end
@@ -61,5 +64,6 @@ if ENV['JAMSTACK_WEB']
     conf.gem File.join(STACK_ROOT, 'mrbgems', 'rmlui')
     conf.gem File.join(STACK_ROOT, 'mrbgems', 'flecs')
     conf.gem File.join(STACK_ROOT, 'mrbgems', 'jolt')
+    conf.gem File.join(STACK_ROOT, 'mrbgems', 'study_audio')
   end
 end

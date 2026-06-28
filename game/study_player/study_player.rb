@@ -1,4 +1,4 @@
-# Study Player — composition root (Phase 2: audio core).
+# Study Player — composition root (Phase 3: silence detection + portion navigation).
 #
 # Run:
 #   ./zig-out/bin/game game/study_player/study_player.rb [/path/to/audio.mp3]
@@ -7,19 +7,23 @@
 # loaded and playing. Without an arg: shows the "no file loaded" splash.
 #
 # Note: all modules are inlined because mruby's default gembox lacks
-# require/require_relative/load. Multi-file loading (with mruby-require)
-# is a Phase 3 consideration. Individual module files are retained on disk
+# require/require_relative/load. Individual module files are retained on disk
 # as design documentation and for future use when a loader gem is added.
 #
 # See: notes/study-player-rewrite-plan.md (full design)
 
 # =============================================================================
 # Module: Core — Pure domain logic (no side effects)
+# Ported from: ../source/src/study.h + study.c
 # See: notes/study-player-rewrite-plan.md §8 (pure core API sketch)
 # =============================================================================
 
 module StudyPlayer
   module Core
+    # ------------------------------------------------------------------
+    # Time formatting
+    # ------------------------------------------------------------------
+
     # Format seconds as a display string.
     #   - < 1 hour:  "M:SS"    (e.g. "3:45", "12:03")
     #   - >= 1 hour: "H:MM:SS" (e.g. "1:23:45")
@@ -36,8 +40,10 @@ module StudyPlayer
       end
     end
 
-    # Seek target utilities (pure math, no audio I/O).
-    #
+    # ------------------------------------------------------------------
+    # Seek target utilities (pure math, no audio I/O)
+    # ------------------------------------------------------------------
+
     # clamp_seek_target ensures the seek position stays within [0, duration].
     def self.clamp_seek_target(target_seconds, duration)
       return 0.0 if duration <= 0.0
@@ -58,6 +64,191 @@ module StudyPlayer
     def self.time_to_ratio(current_time, duration)
       return 0.0 if duration <= 0.0
       (current_time / duration).clamp(0.0, 1.0)
+    end
+
+    # ------------------------------------------------------------------
+    # Silence detection (pure algorithm)
+    # Ported from ../source/src/study.c study_detect_silence
+    # ------------------------------------------------------------------
+
+    SILENCE_THRESHOLD   = 0.015  # amplitude below which a chunk is "silent"
+    SILENCE_MIN_DURATION = 0.75   # seconds: minimum gap to count as silence
+    PADDING_SECONDS     = 0.25   # breathing room added to each side of silence
+    CHUNK_SECONDS       = 0.01   # scan resolution (~10ms chunks)
+    LEAD_FRAMES         = 2      # frames into padding zone for portion seek target
+
+    # Detect silence regions from raw float samples.
+    #
+    # samples     — Array of Float (mono, 32-bit, one per frame)
+    # sample_rate — Integer (Hz)
+    # threshold   — amplitude below which a chunk is "silent" (default 0.015)
+    # min_duration — minimum silence length in seconds (default 0.75)
+    #
+    # Returns Array of Hashes: [{start:, end:}, ...] where start/end are
+    # normalized positions (0.0..1.0) relative to total frame count.
+    def self.detect_silence(samples, sample_rate,
+                             threshold: SILENCE_THRESHOLD,
+                             min_duration: SILENCE_MIN_DURATION)
+      total_frames = samples.length
+      return [] if total_frames == 0
+
+      chunk_size = (sample_rate * CHUNK_SECONDS).to_i
+      chunk_size = 1 if chunk_size < 1
+      min_frames = min_duration * sample_rate
+
+      regions = []
+      in_silence = false
+      silence_start = 0
+
+      i = 0
+      while i < total_frames
+        range_end = i + chunk_size
+        range_end = total_frames if range_end > total_frames
+
+        # Find peak amplitude in this chunk
+        peak = 0.0
+        j = i
+        while j < range_end
+          v = samples[j]
+          v = -v if v < 0.0
+          peak = v if v > peak
+          j += 1
+        end
+
+        if peak < threshold
+          unless in_silence
+            silence_start = i
+            in_silence = true
+          end
+        else
+          if in_silence
+            len = i - silence_start
+            if len >= min_frames
+              regions << {
+                start: silence_start.to_f / total_frames,
+                end:   i.to_f / total_frames,
+              }
+            end
+            in_silence = false
+          end
+        end
+
+        i = range_end
+      end
+
+      # Close any trailing silence
+      if in_silence
+        len = total_frames - silence_start
+        if len >= min_frames
+          regions << {
+            start: silence_start.to_f / total_frames,
+            end:   1.0,
+          }
+        end
+      end
+
+      regions
+    end
+
+    # Apply padding: shrink each silence region by `padding` seconds on each side.
+    # Regions that collapse (start >= end) are removed.
+    #
+    # regions  — Array of {start:, end:} (normalized)
+    # duration — total audio duration in seconds
+    # padding  — seconds to shrink from each side (default 0.25)
+    #
+    # Returns a NEW Array of shrunk regions. Does not mutate input.
+    def self.pad_silence_regions(regions, duration, padding: PADDING_SECONDS)
+      return [] if duration <= 0.0
+      return regions.dup if regions.empty?
+
+      pad_norm = padding / duration
+      result = []
+
+      regions.each do |r|
+        s = r[:start] + pad_norm
+        e = r[:end]   - pad_norm
+        if s < e
+          result << { start: s, end: e }
+        end
+      end
+
+      result
+    end
+
+    # Full analysis pipeline: detect raw gaps, then pad them.
+    # Returns padded silence regions.
+    def self.analyze_silence(samples, sample_rate, duration,
+                             threshold: SILENCE_THRESHOLD,
+                             min_duration: SILENCE_MIN_DURATION,
+                             padding: PADDING_SECONDS)
+      raw = detect_silence(samples, sample_rate,
+                           threshold: threshold,
+                           min_duration: min_duration)
+      pad_silence_regions(raw, duration, padding: padding)
+    end
+
+    # ------------------------------------------------------------------
+    # Portion navigation (pure, ported from study.c)
+    # ------------------------------------------------------------------
+
+    # Return the index of the silence region containing pos (normalized 0..1),
+    # or -1 if none.
+    def self.find_silence_at(regions, pos)
+      regions.each_with_index do |r, i|
+        return i if pos >= r[:start] && pos < r[:end]
+      end
+      -1
+    end
+
+    # Start position (normalized) of speaking portion N (0-based).
+    # Portion 0 starts at 0.0; portion N starts at silence[N-1].end.
+    def self.speaking_portion_start(regions, portion)
+      return 0.0 if portion <= 0
+      if portion > regions.length
+        return regions.length > 0 ? regions.last[:end] : 0.0
+      end
+      regions[portion - 1][:end]
+    end
+
+    # Which speaking portion (0-based) the current position falls in.
+    # During silence, returns the portion that just ended.
+    def self.current_speaking_portion(regions, pos)
+      portion = 0
+      regions.each_with_index do |r, i|
+        if pos >= r[:end]
+          portion = i + 1
+        else
+          break
+        end
+      end
+      portion
+    end
+
+    # Total number of speaking portions (always silence_count + 1).
+    def self.total_speaking_portions(regions)
+      regions.length + 1
+    end
+
+    # Seek target (seconds) for jumping to the start of a speaking portion.
+    # Lands `lead_frames` render frames into the padding zone (~33ms at 60fps).
+    def self.portion_seek_target(duration, regions, portion,
+                                 lead_frames: LEAD_FRAMES, fps: 60)
+      pos = speaking_portion_start(regions, portion)
+      target = pos * duration + (lead_frames.to_f / fps)
+      target = 0.0 if target < 0.0
+      target = duration if target > duration
+      target
+    end
+
+    # Is `pos` (normalized 0..1) inside the padding zone of the given
+    # speaking portion? Padding zone = [start, start + padding/duration].
+    def self.in_padding_zone?(regions, pos, portion, duration,
+                              padding: PADDING_SECONDS)
+      return false if duration <= 0.0
+      pad_norm = padding / duration
+      start_pos = speaking_portion_start(regions, portion)
+      pos >= start_pos && pos < start_pos + pad_norm
     end
   end
 end
@@ -197,9 +388,10 @@ module StudyPlayer
     #   UP / DOWN      — seek -15s / +15s
     #   J / L          — seek -10% / +10%
     #   0 .. 9         — seek to N×10% of duration
+    #   V / B          — prev/next speaking portion
     #   ESC            — quit
     #
-    # Phase 4 adds:  V/B (prev/next portion), SMART_PLAY hold override
+    # Phase 4 adds: SMART_PLAY hold override
 
     SEEK_SMALL   = 5.0    # seconds: LEFT / RIGHT
     SEEK_LARGE   = 15.0   # seconds: UP / DOWN
@@ -209,6 +401,8 @@ module StudyPlayer
       world.system("Input", with: [], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb
+
+        duration = runtime.audio.duration
 
         # --- Play/pause toggle ---
         if Rl.key_pressed?(:space)
@@ -223,7 +417,6 @@ module StudyPlayer
         end
 
         # --- Seek: small step ---
-        duration = runtime.audio.duration
         if Rl.key_pressed?(:right)
           target = StudyPlayer::Core.offset_to_seek(pb[:current_time], SEEK_SMALL, duration)
           pb[:seek_target] = target
@@ -274,6 +467,33 @@ module StudyPlayer
             end
           end
         end
+
+        # --- Portion navigation: V (prev) / B (next) ---
+        regions = runtime.silence_regions
+        if regions && regions.length >= 0 && duration > 0
+          if Rl.key_pressed?(:v)
+            # Previous portion
+            pos_norm = Core.time_to_ratio(pb[:current_time], duration)
+            current = Core.current_speaking_portion(regions, pos_norm)
+            prev_portion = current - 1
+            prev_portion = 0 if prev_portion < 0
+            target = Core.portion_seek_target(duration, regions, prev_portion)
+            pb[:seek_target] = target
+            pb[:seek_pending] = true
+            player_entity.set(playback_state, pb)
+          elsif Rl.key_pressed?(:b)
+            # Next portion
+            pos_norm = Core.time_to_ratio(pb[:current_time], duration)
+            current = Core.current_speaking_portion(regions, pos_norm)
+            total = Core.total_speaking_portions(regions)
+            next_portion = current + 1
+            next_portion = total - 1 if next_portion >= total
+            target = Core.portion_seek_target(duration, regions, next_portion)
+            pb[:seek_target] = target
+            pb[:seek_pending] = true
+            player_entity.set(playback_state, pb)
+          end
+        end
       end
     end
   end
@@ -313,6 +533,39 @@ module StudyPlayer
 
           # Start playback
           runtime.audio.play
+
+          # --- Phase 3: Silence detection via C scanner ---
+          # StudyAudio.scan_silence does the peak scan in C (avoids building
+          # a Ruby array of millions of float samples) and returns raw
+          # normalized silence regions as [[start, end], ...].
+          # We then pad them with the pure-Ruby pad_silence_regions.
+          begin
+            raw_pairs = StudyAudio.scan_silence(path,
+              StudyPlayer::Core::SILENCE_THRESHOLD,
+              StudyPlayer::Core::SILENCE_MIN_DURATION)
+            if raw_pairs && raw_pairs.length > 0
+              # Convert [[s,e],...] to [{start:, end:}, ...]
+              raw_regions = []
+              raw_pairs.each do |pair|
+                raw_regions << { start: pair[0].to_f, end: pair[1].to_f }
+              end
+              regions = StudyPlayer::Core.pad_silence_regions(
+                raw_regions, duration)
+              runtime.silence_regions = regions
+              runtime.raw_silence_regions = raw_regions
+              runtime.analysis_done = true
+            else
+              runtime.silence_regions = []
+              runtime.analysis_done = true
+            end
+          rescue => e
+            begin
+              Log.warn("Silence detection failed: #{e.message}") if defined?(Log)
+            rescue
+            end
+            runtime.silence_regions = []
+            runtime.analysis_done = false
+          end
         else
           # Load failed — clear the file path
           af[:path] = ""
@@ -415,11 +668,15 @@ module StudyPlayer
   # Runtime: owns non-serializable handles (Rl::Music) and the flecs world.
   class Runtime
     attr_accessor :world, :player_entity, :audio, :components
+    attr_accessor :silence_regions, :raw_silence_regions, :analysis_done
     def initialize(world:, player_entity:, audio:, components:)
       @world = world
       @player_entity = player_entity
       @audio = audio
       @components = components
+      @silence_regions = []
+      @raw_silence_regions = []
+      @analysis_done = false
     end
   end
 
@@ -557,8 +814,20 @@ module StudyPlayer
                        x: SCREEN_W / 2 - 60, y: 420, font_size: 18,
                        color: playing ? Rl::Color.new(100, 200, 100, 255) : Rl::Color.new(200, 100, 100, 255))
 
+          # --- Phase 3: Section counter (speaking portion N / total) ---
+          regions = runtime.silence_regions
+          if regions && regions.length >= 0 && duration > 0
+            pos_norm = StudyPlayer::Core.time_to_ratio(pos, duration)
+            current_port = StudyPlayer::Core.current_speaking_portion(regions, pos_norm)
+            total_port   = StudyPlayer::Core.total_speaking_portions(regions)
+            section_text = "#{current_port + 1}/#{total_port}"
+            Rl.draw_text(text: section_text,
+                         x: SCREEN_W / 2 - 30, y: 450, font_size: 24,
+                         color: Rl::Color.new(255, 200, 100, 255))
+          end
+
           # Controls help
-          Rl.draw_text(text: "SPACE: play/pause  LEFT/RIGHT: -5s/+5s  UP/DOWN: -15s/+15s  J/L: -10%/+10%  0-9: n×10%  ESC: quit",
+          Rl.draw_text(text: "SPACE: play/pause  LEFT/RIGHT: -5s/+5s  V/B: prev/next portion  J/L: -10%/+10%  0-9: n×10%  ESC: quit",
                        x: 20, y: SCREEN_H - 60, font_size: 14,
                        color: Rl::Color.new(120, 120, 140, 255))
 

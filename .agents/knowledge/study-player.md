@@ -7,6 +7,43 @@
 - **Run:** `./zig-out/bin/game game/study_player/study_player.rb [audio.mp3]`
 - **Cross-refs:** plan `notes/study-player-rewrite-plan.md`, template rules
   `.agents/rules/*`, build `.agents/knowledge/build-system.md`.
+- **mrbgems/study_audio:** C-level Wave scanner (scan_silence) + load_wave_samples.
+  See §"Phase 3 scar tissue" below.
+
+## Phase 3 scar tissue
+
+### Ruby array size limit → C scanner
+Building a Ruby `Array` of millions of floats from raw audio samples causes
+`ArgumentError: array size too big` in mruby. A 1.5MB MP3 decodes to ~4M float
+frames. **Fix:** `StudyAudio.scan_silence(path, threshold, min_duration)` runs
+the peak-scanning loop in C and returns only the silence region pairs (max 4096).
+The pure-Ruby `Core.detect_silence(samples, ...)` is retained for testing with
+synthetic data; the runtime path uses the C scanner.
+
+### mrbgem naming: `mrb_<dirname>_gem_init` (NOT `mrb_mruby_...`)
+The mruby build system generates a `gem_init.c` that calls
+`GENERATED_TMP_mrb_study_audio_gem_init`, which in turn calls
+`mrb_study_audio_gem_init()`. The function name must match the gem directory
+name exactly: `mrb_<gemname>_gem_init` where gemname is the directory basename
+with hyphens → underscores. `mrb_mruby_study_audio_gem_init` → undefined symbol.
+
+### Native helper include path
+The `study_audio` C file includes `"raylib.h"` — the mrbgem.rake must add
+`vendor/raylib/src` to `spec.cc.include_paths` so the mruby build can find it.
+The raylib symbols are resolved at the final link step (libraylib.a after
+libmruby.a in build.zig).
+
+### Music files have zero silences
+The silence detector (threshold 0.015, min 0.75s) finds 0 regions in music
+files — expected. The algorithm targets speech/audiobook content with clear
+pauses between sentences. Verification with synthetic data (CRuby smoke test)
+confirmed the algorithm works; testing with real speech files is deferred.
+
+### No screenshot tooling on WSLg/Wayland
+WSLg renders via Wayland; `ffmpeg -f x11grab` captures only X11 windows (black
+screen). `grim` (Wayland screenshot) is not installed. Visual verification is
+manual (user looks at the WSLg window). A future improvement could add a
+`TakeScreenshot` binding or use `pipewire` for Wayland capture.
 
 ## mruby compatibility discoveries (Phase 2 scar tissue)
 
