@@ -96,10 +96,11 @@ generated registrar runs.
 
 The Ruby `CheckFileDrop` system (`game/study_player/study_player.rb`) is correct
 and identical in pattern to the original C app. If drag-and-drop is unreliable,
-the cause is NOT the Ruby — it is the GLFW/Wayland backend: see
-`.agents/knowledge/environment.md` § "Wayland drag-and-drop crashes on GLFW 3.4"
-(the `wl_data_offer` NULL-listener crash + the `patches/glfw-wayland-dnd-crash.patch`
-fix). The X11 `../source` app never hits it.
+the cause is NOT the Ruby — it is the window backend: see
+`.agents/knowledge/environment.md` § "Graphics backend: raylib's SDL2 backend".
+The rewrite switched from GLFW (whose Wayland drag-drop crashes — glfw/glfw#2835)
+to raylib's SDL backend, which implements drop via `SDL_DROPFILE`. The original
+`../source` app uses X11/Xdnd and never hit it.
 
 ## Non-blocking seek (skip_auto_update)
 After `Rl.seek_music_stream`, raylib's miniaudio stream may briefly report the

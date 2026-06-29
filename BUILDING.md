@@ -52,14 +52,16 @@ after applying — `make -C vendor/raylib/src clean`.)
 make -C vendor/raylib/src PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC -j4
 ```
 
-> **WSL / WSLg note:** the default X11 backend segfaults inside Mesa's GLX driver
-> (`dri2GalliumConfigQueryb`) on WSLg. Build the **Wayland** backend instead:
+> **WSL / WSLg note:** the desktop build uses raylib's **SDL2** backend
+> (`PLATFORM=PLATFORM_DESKTOP_SDL`), not GLFW. WSLg's X11/GLX path segfaults
+> inside Mesa (`dri2GalliumConfigQueryb`), and GLFW 3.4's Wayland drag-and-drop
+> crashes (glfw/glfw#2835). SDL is robust on both WSLg and real Wayland (labwc),
+> so one backend covers both. It requires SDL2 dev installed system-wide:
 > ```sh
-> make -C vendor/raylib/src PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC \
->      GLFW_LINUX_ENABLE_WAYLAND=TRUE GLFW_LINUX_ENABLE_X11=FALSE -j4
+> sudo pacman -S sdl2          # Arch (or sdl2-compat)
+> # then just:  zig build      # build.zig handles PLATFORM=PLATFORM_DESKTOP_SDL + linking SDL2
 > ```
-> `build.zig` currently links the Wayland libs to match. For a normal X11 desktop,
-> swap the Wayland `linkSystemLibrary` calls in `build.zig` back to `X11`.
+> The web build is separate and still uses Emscripten + GLFW (`build_web.sh`).
 
 ### 1b. Build RmlUi (static lib)
 

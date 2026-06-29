@@ -10,9 +10,10 @@ const std = @import("std");
 // The vendored libs (1,2) are guarded so they only build when missing; mruby (3)
 // runs every time (rake is itself incremental). See BUILDING.md.
 //
-// Wayland backend is used because WSLg's X11/GLX path segfaults in Mesa; for a
-// normal X11 desktop, swap the wayland-* libs for "X11" and rebuild raylib
-// without the GLFW_LINUX_ENABLE_WAYLAND flags.
+// Desktop window/GL backend is raylib's SDL2 backend (PLATFORM_DESKTOP_SDL),
+// not GLFW: GLFW 3.4's Wayland drag-and-drop is broken (crashes on drag) and
+// its X11 path segfaults on WSLg. SDL is robust on both real Wayland (labwc)
+// and WSLg. Requires SDL2 dev installed system-wide. Web uses Emscripten/GLFW.
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -23,25 +24,21 @@ pub fn build(b: *std.Build) void {
     // across platforms, so `make clean` first to avoid picking up wasm objects
     // from a prior web build. Guarded on the desktop lib so it only builds once.
     //
-    // Before building, apply the GLFW Wayland drag-and-drop crash fix (see
-    // patches/glfw-wayland-dnd-crash.patch). GLFW 3.4 (vendored in raylib 6.0)
-    // leaves the wl_data_offer source_actions/action listener handlers NULL,
-    // so libwayland wl_abort()s when a compositor sends them during a drag ->
-    // the app crashes the moment a file is dragged over the window. Idempotent:
-    // if the marker (dataOfferHandleAction) is already in the file, skip; else
-    // apply the patch and delete any stale lib so `make` actually rebuilds.
+    // We use raylib's SDL backend (PLATFORM_DESKTOP_SDL) instead of the default
+    // GLFW backend. GLFW 3.4 (vendored in raylib 6.0) has broken drag-and-drop on
+    // Wayland (the wl_data_offer source_actions/action listeners are NULL ->
+    // libwayland wl_abort()s when a file is dragged over the window), and its X11
+    // backend segfaults on WSLg (Mesa GLX). SDL's own window/egl/drag-drop code is
+    // mature on both real Wayland (labwc) and WSLg, so one backend covers both
+    // targets with no vendor patches. Requires SDL2 dev installed system-wide
+    // (`pacman -S sdl2` / `sdl2-compat`). Web still uses Emscripten/GLFW (separate).
     const raylib_lib = b.addSystemCommand(&.{
         "sh", "-c",
         "r=\"$PWD\"; mkdir -p \"$r/build/desktop\"; " ++
-            "wlw=vendor/raylib/src/external/glfw/src/wl_window.c; " ++
-            "if ! grep -q 'dataOfferHandleAction' \"$wlw\" 2>/dev/null; then " ++
-            "(cd vendor/raylib && patch -p1 --forward < \"$r/patches/glfw-wayland-dnd-crash.patch\" >/dev/null); " ++
-            "rm -f \"$r/build/desktop/libraylib.a\"; " ++
-            "fi; " ++
             "[ -f \"$r/build/desktop/libraylib.a\" ] || (" ++
             "cd vendor/raylib/src && make clean >/dev/null 2>&1; " ++
-            "make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC " ++
-            "GLFW_LINUX_ENABLE_WAYLAND=TRUE GLFW_LINUX_ENABLE_X11=FALSE -j4 " ++
+            "make PLATFORM=PLATFORM_DESKTOP_SDL RAYLIB_LIBTYPE=STATIC " ++
+            "SDL_INCLUDE_PATH=/usr/include/SDL2 SDL_LIBRARY_PATH=/usr/lib -j4 " ++
             "RAYLIB_RELEASE_PATH=\"$r/build/desktop\")",
     });
 
@@ -145,18 +142,13 @@ pub fn build(b: *std.Build) void {
     // (MRB_USE_CXX_EXCEPTION) because a C++ mrbgem (rmlui) is present.
     exe.root_module.addObjectFile(.{ .cwd_relative = "/usr/lib/libgcc_s.so.1" });
 
-    // system libraries needed by raylib (desktop GLFW/Wayland) and mruby
+    // system libraries needed by raylib (desktop SDL2 backend) and mruby
+    exe.root_module.linkSystemLibrary("SDL2", .{});
     exe.root_module.linkSystemLibrary("GL", .{});
-    exe.root_module.linkSystemLibrary("EGL", .{});
     exe.root_module.linkSystemLibrary("m", .{});
     exe.root_module.linkSystemLibrary("pthread", .{});
     exe.root_module.linkSystemLibrary("dl", .{});
     exe.root_module.linkSystemLibrary("rt", .{});
-    // Wayland backend (WSLg-friendly; avoids the broken Mesa GLX path)
-    exe.root_module.linkSystemLibrary("wayland-client", .{});
-    exe.root_module.linkSystemLibrary("wayland-cursor", .{});
-    exe.root_module.linkSystemLibrary("wayland-egl", .{});
-    exe.root_module.linkSystemLibrary("xkbcommon", .{});
 
     // link only after the dependency libs are built
     exe.step.dependOn(&raylib_lib.step);

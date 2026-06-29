@@ -137,15 +137,14 @@ The desktop target needs a **driven display** — a real, interactive window. In
 this WSL2/WSLg dev environment, running the desktop binary from a non-interactive
 shell **stalls** (verified):
 
-- raylib is built **Wayland-only** (`GLFW_LINUX_ENABLE_WAYLAND=TRUE
-  GLFW_LINUX_ENABLE_X11=FALSE`; WSLg's X11/GLX path segfaults inside Mesa — see
-  `.agents/knowledge/environment.md`). With `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
-  WAYLAND_DISPLAY=wayland-0`, `InitWindow` connects to Wayland then **blocks in
-  `do_sys_poll`** (0% CPU, state `S`) — the compositor doesn't drive a
-  non-interactive window, so the framebuffer never renders and no PNG is produced.
-- The X11 path (`DISPLAY=:0`) initializes but **segfaults at GL/FBO setup**
-  (the known Mesa `dri2GalliumConfigQueryb` crash); software GL (`LIBGL_ALWAYS_SOFTWARE`)
-  doesn't help because the X11 backend isn't compiled in.
+- raylib's desktop build now uses the **SDL2** backend (`PLATFORM_DESKTOP_SDL`;
+  see `.agents/knowledge/environment.md`). With `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+  WAYLAND_DISPLAY=wayland-0`, the window opens but a **non-interactive** WSLg
+  compositor doesn't drive it, so the framebuffer never renders and no PNG is
+  produced (the earlier GLFW/Wayland build blocked in `do_sys_poll`; SDL reaches
+  init but the same non-interactive-display problem applies).
+- (Historical: the X11/GLFW path segfaulted in Mesa `dri2GalliumConfigQueryb` on
+  WSLg; that's why it was dropped. SDL sidesteps GLX.)
 
 So `--target desktop` here will hit its 30s timeout and fall back to `ffmpeg`
 (which also can't grab an unrendered window). **Use `--target web` in this
