@@ -94,6 +94,13 @@ hand-written method `path_at(index)` was added to
 drag-and-drop. This method is registered on `Rl::FilePathList` after the
 generated registrar runs.
 
+The Ruby `CheckFileDrop` system (`game/study_player/study_player.rb`) is correct
+and identical in pattern to the original C app. If drag-and-drop is unreliable,
+the cause is NOT the Ruby — it is the GLFW/Wayland backend: see
+`.agents/knowledge/environment.md` § "Wayland drag-and-drop crashes on GLFW 3.4"
+(the `wl_data_offer` NULL-listener crash + the `patches/glfw-wayland-dnd-crash.patch`
+fix). The X11 `../source` app never hits it.
+
 ## Non-blocking seek (skip_auto_update)
 After `Rl.seek_music_stream`, raylib's miniaudio stream may briefly report the
 old position. The `skip_auto_update` counter (set to 3 frames = ~50ms at 60fps)
