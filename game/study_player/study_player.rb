@@ -1474,21 +1474,11 @@ module StudyPlayer
     UpdateSystem.build(world, player_entity, runtime, pb)
     StudySystem.build(world, player_entity, runtime, pb, ss)
 
-    # --- File drop check system (drag-and-drop fallback) ---
-    world.system("CheckFileDrop", with: [], phase: Flecs::PRE_UPDATE) do
-      if Rl.file_dropped?
-        files = Rl.load_dropped_files
-        if files && files.count > 0
-          path = files.path_at(0)
-          if path && !path.empty?
-            ent = player_entity
-            ent.set(af, { path: path, duration: 0.0 })
-            ent.add(nl)
-          end
-        end
-        Rl.unload_dropped_files(files)
-      end
-    end
+    # NOTE: File-drop polling happens in the main loop below (not a flecs
+    # system). A system registered with `with: []` (zero terms) never iterates
+    # its block in this flecs build, so Rl.file_dropped? was never polled and
+    # drag-and-drop silently did nothing. The original C app polls
+    # IsFileDropped() directly in its main loop — same pattern here.
 
     # --- Audio file from ARGV (Phase 2: opens straight into player view) ---
     audio_arg = nil
@@ -1520,6 +1510,22 @@ module StudyPlayer
       # --- Phase 6: Settings panel toggle (F2) ---
       if Rl.key_pressed?(:f2)
         runtime.settings_visible = !runtime.settings_visible
+      end
+
+      # --- Drag-and-drop file loading (polled in the main loop) ---
+      # Done before world.progress so the LoadSystem (PRE_UPDATE) picks up the
+      # new file in the same frame.
+      if Rl.file_dropped?
+        files = Rl.load_dropped_files
+        if files && files.count > 0
+          path = files.path_at(0)
+          if path && !path.empty?
+            player_entity.set(af, { path: path, duration: 0.0 })
+            player_entity.add(nl)
+            puts "[drag-drop] loading: #{path}"
+          end
+        end
+        Rl.unload_dropped_files(files)
       end
 
       # Run ECS systems (keyboard input, seek, update, study)
