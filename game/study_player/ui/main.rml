@@ -2,7 +2,7 @@
 <head>
     <link type="text/rcss" href="main.rcss"/>
 </head>
-<body data-model="player">
+<body id="body-root" data-model="player">
     <!-- ================================================================ -->
     <!-- Splash view: shown when no file is loaded                       -->
     <!-- ================================================================ -->

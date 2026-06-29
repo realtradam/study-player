@@ -1355,8 +1355,8 @@ module StudyPlayer
       end
     end
 
-    # Apply font_scale to the root element via a global style override.
-    # Since RmlUi body font-size cascades, we set it on the document root.
+    # Apply font_scale to the body element via a global style override.
+    # The <body> tag has id="body-root" so we can set its properties.
     def self.apply_font_scale(doc, scale)
       return unless doc
       return if scale <= 0 || scale > 5.0
@@ -1366,8 +1366,7 @@ module StudyPlayer
       new_size = 10 if new_size < 10
       new_size = 96 if new_size > 96
 
-      # Try to find a body or root element
-      root = doc.element("body") || doc.element("__body__")
+      root = doc.element("body-root")
       return unless root
 
       root.set_property("font-size", "#{new_size}px")

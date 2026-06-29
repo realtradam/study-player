@@ -149,20 +149,21 @@ module StudyPlayer
       end
     end
 
-    # Apply font_scale to the body element.
+    # Apply font_scale to the body element via a global style override.
+    # The <body> tag has id="body-root" so we can set its properties.
     def self.apply_font_scale(doc, scale)
       return unless doc
-      body = doc.element("body") || doc.element("__body__")
-      # Try finding the body via document
-      body_el = body || doc
-      return unless body_el
+      return if scale <= 0 || scale > 5.0
 
-      base_size = 18  # matches main.rcss body font-size
-      new_size = (base_size * scale).round
+      base = 18  # matches main.rcss body font-size
+      new_size = (base * scale).round
       new_size = 10 if new_size < 10
-      new_size = 72 if new_size > 72
-      # Use the context to set property on the body
-      # (RmlUi body element is special — we set it via the document root)
+      new_size = 96 if new_size > 96
+
+      root = doc.element("body-root")
+      return unless root
+
+      root.set_property("font-size", "#{new_size}px")
     end
   end
 end
