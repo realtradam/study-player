@@ -486,8 +486,11 @@ module StudyPlayer
     SEEK_LARGE   = 15.0   # seconds: UP / DOWN
     SEEK_PCT_STEP = 0.10  # 10%: J / L
 
-    def self.build_system(world, player_entity, runtime, playback_state, study_state)
-      world.system("Input", with: [playback_state], phase: Flecs::PRE_UPDATE) do
+    def self.build_system(world, player_entity, runtime, playback_state, study_state, audio_file)
+      # Iterate audio_file (not playback_state): an ecs_set on the iterated
+      # component inside a system is deferred+discarded by flecs, so the write
+      # never committed. audio_file isn't mutated here -> pb/ss writes persist.
+      world.system("Input", with: [audio_file], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb
 
@@ -684,8 +687,12 @@ end
 
 module StudyPlayer
   class UpdateSystem
-    def self.build(world, player_entity, runtime, playback_state)
-      world.system("Update", with: [playback_state], phase: Flecs::ON_UPDATE) do
+    def self.build(world, player_entity, runtime, playback_state, audio_file)
+      # Iterate audio_file (NOT playback_state): mutating the iterated
+      # component via ecs_set inside a system is deferred+discarded, so the
+      # current_time write never committed. Iterating a component we don't
+      # mutate (audio_file) keeps the playback_state write immediate.
+      world.system("Update", with: [audio_file], phase: Flecs::ON_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb && pb[:loaded]
 
@@ -731,8 +738,8 @@ module StudyPlayer
     # to flush and report a stable time.
     SKIP_FRAMES = 3
 
-    def self.build(world, player_entity, runtime, playback_state)
-      world.system("ApplySeek", with: [playback_state], phase: Flecs::PRE_UPDATE) do
+    def self.build(world, player_entity, runtime, playback_state, audio_file)
+      world.system("ApplySeek", with: [audio_file], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb && pb[:loaded] && pb[:seek_pending]
 
@@ -767,8 +774,8 @@ end
 
 module StudyPlayer
   class StudySystem
-    def self.build(world, player_entity, runtime, playback_state, study_state)
-      world.system("Study", with: [playback_state], phase: Flecs::ON_UPDATE) do
+    def self.build(world, player_entity, runtime, playback_state, study_state, audio_file)
+      world.system("Study", with: [audio_file], phase: Flecs::ON_UPDATE) do
         pb = player_entity.get(playback_state)
         ss = player_entity.get(study_state)
         next unless pb && ss && pb[:loaded]
@@ -1469,10 +1476,10 @@ module StudyPlayer
 
     # --- Register systems ---
     LoadSystem.build(world, player_entity, runtime, af, pb, nl)
-    SeekSystem.build(world, player_entity, runtime, pb)
-    InputAdapter.build_system(world, player_entity, runtime, pb, ss)
-    UpdateSystem.build(world, player_entity, runtime, pb)
-    StudySystem.build(world, player_entity, runtime, pb, ss)
+    SeekSystem.build(world, player_entity, runtime, pb, af)
+    InputAdapter.build_system(world, player_entity, runtime, pb, ss, af)
+    UpdateSystem.build(world, player_entity, runtime, pb, af)
+    StudySystem.build(world, player_entity, runtime, pb, ss, af)
 
     # NOTE: File-drop polling happens in the main loop below (not a flecs
     # system). A system registered with `with: []` (zero terms) never iterates
