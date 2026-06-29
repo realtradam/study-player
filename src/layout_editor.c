@@ -54,7 +54,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
            Later checks overwrite earlier ones if they overlap —
            priority goes to elements drawn last / on top. */
 
-        /* 6: Section nav buttons (two circles) */
+        /* 6: Portion nav buttons (two circles) */
         {
             float secPrevX = layout->secNavX - 65.0f;
             float secNextX = layout->secNavX + 65.0f;
@@ -167,7 +167,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
             layout->smartPlayX = mouse.x - dragOffsetX;
             layout->smartPlayY = mouse.y - dragOffsetY;
             break;
-        case 6: /* Section nav */
+        case 6: /* Portion nav */
             layout->secNavX = mouse.x - dragOffsetX;
             layout->secNavY = mouse.y - dragOffsetY;
             break;
@@ -253,7 +253,7 @@ void layout_editor_draw(const char *exePath, UILayout *layout)
         draw_label("Play", r, f, borderColor);
     }
 
-    /* --- 6: Section nav buttons --- */
+    /* --- 6: Portion nav buttons --- */
     {
         Color f = (dragIndex == 6) ? highlightColor : fillColor;
         float secBtnRadius = 35.0f;

@@ -49,7 +49,7 @@
 - **Const correctness:** Mark pointers `const` when the function does not
   mutate the data. Example: `const char *path` in functions that only read.
 
-## 4. Function naming
+## 4. Naming & vocabulary
 
 - **Prefix public functions** with the module name or a clear namespace:
   - `player_*` for player module
@@ -57,6 +57,11 @@
   - `ui_*` for UI module
 - **Static helpers** (module-internal) may omit the prefix.
 - **Verb-first naming:** `player_load`, `player_seek`, `study_detect_silence`.
+- **Vocabulary is governed by `GLOSSARY.md`.** Reuse existing terms; never invent
+  a synonym for a concept that already has a canonical name (see its "Avoid
+  calling it…" column). Prefer standard, training-baked names over novel ones.
+  If you genuinely need a new term, propose it — do not coin one silently in
+  code.
 
 ## 5. Testing & verification
 
@@ -84,3 +89,21 @@ After completing your work, write `reports/<module>.md` with:
    declaration")
 
 Keep the report concise — the orchestrator reads many of these per wave.
+
+## 8. Tribal knowledge (`notes/`)
+
+- **What it is:** project-specific, non-inferable knowledge and scar tissue —
+  the operational gotchas, environment quirks, and hard-won debugging facts that
+  a fresh frontier model could NOT derive by reading the source. This is the
+  only kind of prose that belongs in docs here.
+- **The test (P6):** *Could a fresh frontier model figure this out by reading
+  the code? If yes, leave it out.* Never restate generic C/raylib/Linux
+  best-practice the model already knows — that is noise.
+- **Where it lives:** `notes/<topic>.md`, one file per topic. Existing entries:
+  - `notes/restructure-plan.md` — module-decomposition plan
+  - `notes/wsl-arch-razer-run.md` — running the desktop app under WSLg on the
+    Arch/Razer dev machine (the `LIBGL_ALWAYS_INDIRECT` segfault trap)
+- **When you add one:** after solving something non-obvious — a crash that only
+  reproduces in one environment, a build/run invocation that needs specific env
+  vars, an undocumented platform constraint. Write the symptom, the root cause,
+  and the fix. Keep it to the non-inferable facts only.

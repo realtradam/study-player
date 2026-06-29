@@ -31,7 +31,7 @@ int study_total_speaking_portions(const PlayerState *state);
 
 /* Seek target (seconds) for jumping to a speaking portion.
  * Lands 2 render-frames (~33ms) into the padding zone. */
-float study_segment_seek_target(const PlayerState *state, int portion);
+float study_portion_seek_target(const PlayerState *state, int portion);
 
 /* Is pos inside the padding zone of the given speaking portion?
  * Padding zone = [speaking_start, speaking_start + 0.25s/duration]. */

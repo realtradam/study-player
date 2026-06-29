@@ -136,7 +136,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
             player_play(state);
     }
 
-    /* --- Section nav buttons --- */
+    /* --- Portion nav buttons --- */
     {
         float progress = (state->duration > 0.0f) ? state->currentTime / state->duration : 0.0f;
         int portion = study_current_speaking_portion(state, progress) + 1;
@@ -154,7 +154,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
             bool inSil = (study_find_silence_at(state, pos) >= 0);
             bool inPad = study_in_padding_zone(state, pos, p);
             if ((inSil || inPad) && p > 0) p--;
-            float target = study_segment_seek_target(state, p);
+            float target = study_portion_seek_target(state, p);
             player_seek(state, target);
             state->wasInSilence = false;
             state->lastSilenceIdx = -1;
@@ -164,7 +164,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
             float pos = state->currentTime / state->duration;
             int p = study_current_speaking_portion(state, pos);
             if (p < total - 1) p++;
-            float target = study_segment_seek_target(state, p);
+            float target = study_portion_seek_target(state, p);
             player_seek(state, target);
             state->wasInSilence = false;
             state->lastSilenceIdx = -1;
@@ -207,7 +207,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
     {
         float pos = state->currentTime / state->duration;
         int portion = study_current_speaking_portion(state, pos);
-        float target = study_segment_seek_target(state, portion);
+        float target = study_portion_seek_target(state, portion);
         player_seek(state, target);
         player_play(state);
     }
@@ -223,7 +223,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
         bool inPad = study_in_padding_zone(state, pos, portion);
         if ((inSil || inPad) && portion > 0)
             portion--;
-        float target = study_segment_seek_target(state, portion);
+        float target = study_portion_seek_target(state, portion);
         player_seek(state, target);
         state->wasInSilence = false;
         state->lastSilenceIdx = -1;
@@ -235,7 +235,7 @@ void ui_handle_input(UIState *ui, PlayerState *state, const UILayout *layout)
         int portion = study_current_speaking_portion(state, pos);
         int total = study_total_speaking_portions(state);
         if (portion < total - 1) portion++;
-        float target = study_segment_seek_target(state, portion);
+        float target = study_portion_seek_target(state, portion);
         player_seek(state, target);
         state->wasInSilence = false;
         state->lastSilenceIdx = -1;
@@ -378,7 +378,7 @@ void ui_render_player(const UIState *ui, const PlayerState *state,
     else
         draw_play_icon(ppx, layout->btnY, 50, ui->textColor);
 
-    /* Speaking portion counter with prev/next section buttons */
+    /* Speaking portion counter with prev/next portion buttons */
     {
         int portion = study_current_speaking_portion(state, progress) + 1;
         int total = study_total_speaking_portions(state);
@@ -394,7 +394,7 @@ void ui_render_player(const UIState *ui, const PlayerState *state,
                    (Vector2){ portionX, portionY },
                    ui->szSmall, portionSpacing, ui->mutedColor);
 
-        /* Section nav buttons */
+        /* Portion nav buttons */
         float secPrevX = layout->secNavX - 65.0f;
         float secNextX = layout->secNavX + 65.0f;
         float secBtnY_draw = layout->secNavY;

@@ -130,7 +130,7 @@ int study_total_speaking_portions(const PlayerState *state)
     return state->silenceCount + 1;
 }
 
-float study_segment_seek_target(const PlayerState *state, int portion)
+float study_portion_seek_target(const PlayerState *state, int portion)
 {
     float pos = study_speaking_portion_start(state, portion);
     float target = pos * state->duration + (2.0f / 60.0f);
@@ -171,8 +171,8 @@ void study_auto_pause_check(PlayerState *state, bool smartPlayHeld, bool spaceHe
 
     if (nowInSilence && !state->wasInSilence)
     {
-        /* Entering silence: jump to start of next speaking portion */
-        float target = study_segment_seek_target(state, silIdx + 1);
+        /* Entering silence: seek to start of next speaking portion */
+        float target = study_portion_seek_target(state, silIdx + 1);
         PauseMusicStream(state->music);
         SeekMusicStream(state->music, target);
         state->currentTime = target;
@@ -183,7 +183,7 @@ void study_auto_pause_check(PlayerState *state, bool smartPlayHeld, bool spaceHe
     {
         /* Exiting silence: land at start of current speaking portion */
         int portion = study_current_speaking_portion(state, pos);
-        float target = study_segment_seek_target(state, portion);
+        float target = study_portion_seek_target(state, portion);
         PauseMusicStream(state->music);
         SeekMusicStream(state->music, target);
         state->currentTime = target;
