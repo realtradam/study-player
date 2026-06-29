@@ -487,7 +487,7 @@ module StudyPlayer
     SEEK_PCT_STEP = 0.10  # 10%: J / L
 
     def self.build_system(world, player_entity, runtime, playback_state, study_state)
-      world.system("Input", with: [], phase: Flecs::PRE_UPDATE) do
+      world.system("Input", with: [playback_state], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb
 
@@ -685,7 +685,7 @@ end
 module StudyPlayer
   class UpdateSystem
     def self.build(world, player_entity, runtime, playback_state)
-      world.system("Update", with: [], phase: Flecs::ON_UPDATE) do
+      world.system("Update", with: [playback_state], phase: Flecs::ON_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb && pb[:loaded]
 
@@ -732,7 +732,7 @@ module StudyPlayer
     SKIP_FRAMES = 3
 
     def self.build(world, player_entity, runtime, playback_state)
-      world.system("ApplySeek", with: [], phase: Flecs::PRE_UPDATE) do
+      world.system("ApplySeek", with: [playback_state], phase: Flecs::PRE_UPDATE) do
         pb = player_entity.get(playback_state)
         next unless pb && pb[:loaded] && pb[:seek_pending]
 
@@ -768,7 +768,7 @@ end
 module StudyPlayer
   class StudySystem
     def self.build(world, player_entity, runtime, playback_state, study_state)
-      world.system("Study", with: [], phase: Flecs::ON_UPDATE) do
+      world.system("Study", with: [playback_state], phase: Flecs::ON_UPDATE) do
         pb = player_entity.get(playback_state)
         ss = player_entity.get(study_state)
         next unless pb && ss && pb[:loaded]
