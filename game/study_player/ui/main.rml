@@ -57,10 +57,12 @@
     <!-- ================================================================ -->
     <div id="bottom-bar">
         <div id="help-text">{{help_text}}</div>
-        <div id="study-mode-box">
-            <input type="checkbox" id="cb-study" data-value="study_mode"/>
-            <span id="study-label">Study Mode</span>
-        </div>
+        <form id="study-form">
+            <div id="study-mode-box">
+                <input type="checkbox" id="cb-study" data-checked="study_mode"/>
+                <span id="study-label">Study Mode</span>
+            </div>
+        </form>
     </div>
 
     <!-- ================================================================ -->

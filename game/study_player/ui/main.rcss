@@ -271,6 +271,11 @@ body {
     color: #8c8ca0;
 }
 
+#study-form {
+    display: block;
+    height: 0;
+}
+
 #study-mode-box {
     position: absolute;
     top: 684px;
@@ -284,6 +289,14 @@ body {
     width: 22px;
     height: 22px;
     vertical-align: middle;
+    decorator: none;
+    border: 2px #8c8ca0;
+    background-color: #181825;
+}
+
+#cb-study:checked {
+    background-color: #a6e3a1;
+    border-color: #a6e3a1;
 }
 
 #study-label {
