@@ -22,9 +22,22 @@ pub fn build(b: *std.Build) void {
     // Desktop raylib -> build/desktop/libraylib.a. raylib shares .o files in src/
     // across platforms, so `make clean` first to avoid picking up wasm objects
     // from a prior web build. Guarded on the desktop lib so it only builds once.
+    //
+    // Before building, apply the GLFW Wayland drag-and-drop crash fix (see
+    // patches/glfw-wayland-dnd-crash.patch). GLFW 3.4 (vendored in raylib 6.0)
+    // leaves the wl_data_offer source_actions/action listener handlers NULL,
+    // so libwayland wl_abort()s when a compositor sends them during a drag ->
+    // the app crashes the moment a file is dragged over the window. Idempotent:
+    // if the marker (dataOfferHandleAction) is already in the file, skip; else
+    // apply the patch and delete any stale lib so `make` actually rebuilds.
     const raylib_lib = b.addSystemCommand(&.{
         "sh", "-c",
         "r=\"$PWD\"; mkdir -p \"$r/build/desktop\"; " ++
+            "wlw=vendor/raylib/src/external/glfw/src/wl_window.c; " ++
+            "if ! grep -q 'dataOfferHandleAction' \"$wlw\" 2>/dev/null; then " ++
+            "(cd vendor/raylib && patch -p1 --forward < \"$r/patches/glfw-wayland-dnd-crash.patch\" >/dev/null); " ++
+            "rm -f \"$r/build/desktop/libraylib.a\"; " ++
+            "fi; " ++
             "[ -f \"$r/build/desktop/libraylib.a\" ] || (" ++
             "cd vendor/raylib/src && make clean >/dev/null 2>&1; " ++
             "make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC " ++
